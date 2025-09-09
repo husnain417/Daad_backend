@@ -230,6 +230,22 @@ public class VendorDashboardController {
         ));
     }
 
+    // New: Sales report
+    @GetMapping("/analytics/sales-report")
+    public ResponseEntity<Map<String, Object>> salesReport() {
+        String vendorId = getCurrentVendorId();
+        Map<String, Object> report = orderRepository.vendorSalesReport(vendorId);
+        return ResponseEntity.ok(Map.of("success", true, "data", report));
+    }
+
+    // New: Customer insights
+    @GetMapping("/analytics/customer-insights")
+    public ResponseEntity<Map<String, Object>> customerInsights() {
+        String vendorId = getCurrentVendorId();
+        Map<String, Object> insights = orderRepository.vendorCustomerInsights(vendorId);
+        return ResponseEntity.ok(Map.of("success", true, "data", insights));
+    }
+
     @GetMapping("/performance-metrics")
     public ResponseEntity<Map<String, Object>> getPerformanceMetrics(@RequestParam(defaultValue = "30") Integer days) {
         String vendorId = getCurrentVendorId();

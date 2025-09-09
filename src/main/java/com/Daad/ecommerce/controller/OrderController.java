@@ -4,17 +4,17 @@ import com.Daad.ecommerce.dto.Order;
 import com.Daad.ecommerce.dto.Product;
 import com.Daad.ecommerce.repository.OrderRepository;
 import com.Daad.ecommerce.repository.ProductRepository;
+import com.Daad.ecommerce.repository.VendorRepository;
 import com.Daad.ecommerce.repository.UserRepository;
 import com.Daad.ecommerce.security.SecurityUtils;
 import com.Daad.ecommerce.service.LocalUploadService;
-import com.Daad.ecommerce.service.OrderEmailService;
+import com.Daad.ecommerce.service.NotificationService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -26,8 +26,9 @@ public class OrderController {
 	@Autowired private OrderRepository orderRepository;
 	@Autowired private ProductRepository productRepository;
 	@Autowired private UserRepository userRepository;
+	@Autowired private VendorRepository vendorRepository;
 	@Autowired private LocalUploadService localUploadService;
-	@Autowired private OrderEmailService orderEmailService;
+	@Autowired private NotificationService notificationService;
 
 	private int calculatePoints(double amount) { return (int) Math.floor(amount / 100.0); }
 
@@ -54,18 +55,21 @@ public class OrderController {
 		try {
 			Map<String, Object> orderData;
 			if (receipt != null && orderDataJson != null) {
-				orderData = new com.fasterxml.jackson.databind.ObjectMapper().readValue(orderDataJson, Map.class);
+				@SuppressWarnings("unchecked")
+				Map<String, Object> parsedData = new com.fasterxml.jackson.databind.ObjectMapper().readValue(orderDataJson, Map.class);
+				orderData = parsedData;
 			} else {
 				orderData = jsonBody != null ? jsonBody : new HashMap<>();
 			}
-
-			Map<String, Object> customerInfo = (Map<String, Object>) orderData.get("customerInfo");
+			@SuppressWarnings("unchecked")
 			List<Map<String, Object>> items = (List<Map<String, Object>>) orderData.get("items");
+			@SuppressWarnings("unchecked")
 			Map<String, Object> shippingAddressMap = (Map<String, Object>) orderData.get("shippingAddress");
 			double subtotal = Double.parseDouble(orderData.get("subtotal").toString());
 			double shippingCharges = orderData.get("shippingCharges") != null ? Double.parseDouble(orderData.get("shippingCharges").toString()) : 0.0;
 			double total = Double.parseDouble(orderData.get("total").toString());
 			double discount = orderData.get("discount") != null ? Double.parseDouble(orderData.get("discount").toString()) : 0.0;
+			@SuppressWarnings("unchecked")
 			Map<String, Object> discountInfo = (Map<String, Object>) orderData.getOrDefault("discountInfo", Map.of("amount", 0, "reasons", List.of(), "pointsUsed", 0));
 			String paymentMethod = orderData.get("paymentMethod").toString();
 
@@ -168,6 +172,8 @@ public class OrderController {
 			if (userId != null) order.setUserId(userId);
 
 			Order saved = orderRepository.save(order);
+			// persist order items for vendor queries
+			orderRepository.insertOrderItems(saved.getId(), processedItems);
 
 			if (userId != null) {
 				var userOpt = userRepository.findById(userId);
@@ -181,8 +187,8 @@ public class OrderController {
 			try {
 				String email = sa.getEmail();
 				if (email != null && !email.isBlank()) {
-					orderEmailService.sendOrderConfirmationToCustomer(saved, email);
-					orderEmailService.sendNewOrderEmailToAdmin(saved, email);
+					// Use the new notification service
+					notificationService.notifyOrderPlaced(saved);
 				}
 			} catch (Exception ignored) {}
 
@@ -267,10 +273,93 @@ public class OrderController {
 		Order saved = orderRepository.save(order);
 
 		if (statusChanged) {
-			String emailToSend = order.getCustomerEmail();
-			if (emailToSend != null && !emailToSend.isBlank()) {
-				try { orderEmailService.sendOrderStatusUpdateToCustomer(saved, emailToSend); } catch (Exception ignored) {}
-			}
+			try {
+				notificationService.notifyOrderStatusUpdate(saved, status);
+			} catch (Exception ignored) {}
+		}
+		return ResponseEntity.ok(Map.of("success", true, "message", "Order status updated successfully", "order", saved));
+	}
+
+	// Get tracking info
+	@GetMapping("/{orderId}/tracking")
+	@PreAuthorize("isAuthenticated()")
+	public ResponseEntity<Map<String, Object>> getOrderTracking(@PathVariable String orderId) {
+		String userId = SecurityUtils.currentUserId();
+		var orderOpt = orderRepository.findById(orderId);
+		if (orderOpt.isEmpty()) return ResponseEntity.status(404).body(Map.of("success", false, "message", "Order not found"));
+		Order order = orderOpt.get();
+		boolean isAdmin = SecurityUtils.hasRole("ADMIN");
+		if (!isAdmin && !Objects.equals(order.getUserId(), userId)) {
+			return ResponseEntity.status(403).body(Map.of("success", false, "message", "Not authorized to view this order"));
+		}
+		Map<String, Object> tracking = new HashMap<>();
+		tracking.put("trackingNumber", order.getTrackingNumber());
+		tracking.put("orderStatus", order.getOrderStatus());
+		tracking.put("estimatedDelivery", order.getEstimatedDelivery());
+		tracking.put("deliveredAt", order.getDeliveredAt());
+		return ResponseEntity.ok(Map.of("success", true, "tracking", tracking));
+	}
+
+	// Cancel order
+	@PostMapping("/{orderId}/cancel")
+	@PreAuthorize("isAuthenticated()")
+	public ResponseEntity<Map<String, Object>> cancelOrder(@PathVariable String orderId, @RequestBody(required = false) Map<String, Object> body) {
+		String userId = SecurityUtils.currentUserId();
+		var orderOpt = orderRepository.findById(orderId);
+		if (orderOpt.isEmpty()) return ResponseEntity.status(404).body(Map.of("success", false, "message", "Order not found"));
+		Order order = orderOpt.get();
+		boolean isAdmin = SecurityUtils.hasRole("ADMIN");
+		if (!isAdmin && !Objects.equals(order.getUserId(), userId)) {
+			return ResponseEntity.status(403).body(Map.of("success", false, "message", "Not authorized to cancel this order"));
+		}
+		if ("cancelled".equalsIgnoreCase(order.getOrderStatus()) || "delivered".equalsIgnoreCase(order.getOrderStatus())) {
+			return ResponseEntity.status(400).body(Map.of("success", false, "message", "Order cannot be cancelled in its current status"));
+		}
+		String reason = body != null && body.get("reason") != null ? body.get("reason").toString() : null;
+		orderRepository.cancelOrder(orderId, reason);
+		var updated = orderRepository.findById(orderId).get();
+		try {
+			notificationService.notifyOrderCancellation(updated, "customer");
+		} catch (Exception ignored) {}
+		return ResponseEntity.ok(Map.of("success", true, "message", "Order cancelled successfully", "order", updated));
+	}
+
+	// Vendor: list vendor orders
+	@GetMapping("/vendor")
+	@PreAuthorize("hasRole('VENDOR')")
+	public ResponseEntity<Map<String, Object>> getVendorOrders() {
+		String userId = SecurityUtils.currentUserId();
+		var vendorOpt = vendorRepository.findByUserId(userId);
+		if (vendorOpt.isEmpty()) return ResponseEntity.status(404).body(Map.of("success", false, "message", "Vendor profile not found"));
+		String vendorId = vendorOpt.get().getId();
+		List<Order> orders = orderRepository.findByVendorId(vendorId);
+		return ResponseEntity.ok(Map.of("success", true, "count", orders.size(), "orders", orders));
+	}
+
+	// Vendor: update order status for their items' order
+	@PutMapping("/vendor/{orderId}/status")
+	@PreAuthorize("hasRole('VENDOR')")
+	public ResponseEntity<Map<String, Object>> updateVendorOrderStatus(@PathVariable String orderId, @RequestBody Map<String, Object> body) {
+		String status = body.get("status") != null ? body.get("status").toString() : null;
+		if (status == null || status.isBlank()) return ResponseEntity.badRequest().body(Map.of("success", false, "message", "Status is required"));
+
+		String userId = SecurityUtils.currentUserId();
+		var vendorOpt = vendorRepository.findByUserId(userId);
+		if (vendorOpt.isEmpty()) return ResponseEntity.status(404).body(Map.of("success", false, "message", "Vendor profile not found"));
+		String vendorId = vendorOpt.get().getId();
+		boolean owns = orderRepository.vendorOwnsOrder(orderId, vendorId);
+		if (!owns) return ResponseEntity.status(403).body(Map.of("success", false, "message", "Not authorized to update this order"));
+
+		var orderOpt = orderRepository.findById(orderId);
+		if (orderOpt.isEmpty()) return ResponseEntity.status(404).body(Map.of("success", false, "message", "Order not found"));
+		Order order = orderOpt.get();
+		boolean statusChanged = !Objects.equals(order.getOrderStatus(), status);
+		order.setOrderStatus(status);
+		Order saved = orderRepository.save(order);
+		if (statusChanged) {
+			try {
+				notificationService.notifyOrderStatusUpdate(saved, status);
+			} catch (Exception ignored) {}
 		}
 		return ResponseEntity.ok(Map.of("success", true, "message", "Order status updated successfully", "order", saved));
 	}

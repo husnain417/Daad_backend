@@ -1,5 +1,6 @@
 package com.Daad.ecommerce.controller;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -16,8 +17,8 @@ import com.Daad.ecommerce.repository.VendorRepository;
 import com.Daad.ecommerce.service.EmailService;
 import com.Daad.ecommerce.service.JwtService;
 import com.Daad.ecommerce.service.LocalUploadService;
+import com.Daad.ecommerce.service.NotificationService;
 
-import java.nio.file.Path;
 import java.util.*;
 
 @RestController
@@ -30,6 +31,9 @@ public class UserController {
     private final EmailService emailService;
     private final LocalUploadService localUploadService;
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
+
+    @Autowired
+    private NotificationService notificationService;
 
     public UserController(UserRepository userRepository,
                           VendorRepository vendorRepository,
@@ -188,6 +192,13 @@ public class UserController {
                 vendor.setDescription(body.vendorDetails.description);
                 vendor.setStatus("pending");
                 vendorRepository.save(vendor);
+                
+                // Send vendor registration notifications
+                try {
+                    notificationService.notifyVendorRegistration(vendor);
+                } catch (Exception e) {
+                    System.err.println("Failed to send vendor registration notifications: " + e.getMessage());
+                }
             } catch (Exception ex) {
                 ex.printStackTrace();
                 userRepository.deleteById(user.getId());
@@ -204,7 +215,7 @@ public class UserController {
 
         // Send welcome email
         try {
-            emailService.sendWelcomeEmail(user);
+            notificationService.notifyUserRegistration(user);
         } catch (Exception e) {
             System.err.println("Failed to send welcome email: " + e.getMessage());
             // Don't fail registration if email fails
@@ -440,6 +451,23 @@ public class UserController {
         return ResponseEntity.ok(Map.of("success", true, "count", transformed.size(), "data", transformed));
     }
 
+    // Admin: pending vendor approvals
+    @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
+    @GetMapping("/admin/vendors/pending-approval")
+    public ResponseEntity<?> getPendingVendors() {
+        List<Vendor> vendors = vendorRepository.findByStatus("pending");
+        return ResponseEntity.ok(Map.of("success", true, "count", vendors.size(), "vendors", vendors));
+    }
+
+    // Admin: approve vendor
+    @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
+    @PutMapping("/admin/vendors/{vendorId}/approve")
+    public ResponseEntity<?> approveVendor(@PathVariable String vendorId, org.springframework.security.core.Authentication authentication) {
+        String adminId = (String) authentication.getPrincipal();
+        vendorRepository.updateStatus(vendorId, "approved", adminId);
+        return ResponseEntity.ok(Map.of("success", true, "message", "Vendor approved"));
+    }
+
     @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
     @PutMapping("/vendors/{vendorId}/status")
     public ResponseEntity<?> updateVendorStatus(@PathVariable String vendorId, @RequestBody Map<String, String> body, org.springframework.security.core.Authentication authentication) {
@@ -466,6 +494,16 @@ public class UserController {
             }
         }
         vendorRepository.save(v);
+        
+        // Send vendor approval notifications
+        try {
+            boolean isApproved = "approved".equals(status);
+            String reason = isApproved ? "Your application has been approved" : "Your application has been rejected";
+            notificationService.notifyVendorApproval(v, isApproved, reason);
+        } catch (Exception e) {
+            System.err.println("Failed to send vendor approval notifications: " + e.getMessage());
+        }
+        
         return ResponseEntity.ok(Map.of("success", true, "message", "Vendor status updated to " + status));
     }
 }

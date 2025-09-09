@@ -4,6 +4,7 @@ import com.Daad.ecommerce.dto.CreateProductRequest;
 import com.Daad.ecommerce.dto.Product;
 import com.Daad.ecommerce.repository.*;
 import com.Daad.ecommerce.service.LocalUploadService;
+import com.Daad.ecommerce.service.NotificationService;
 import com.Daad.ecommerce.security.SecurityUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -38,6 +39,9 @@ public class ProductController {
     
     @Autowired
     private LocalUploadService localUploadService;
+    
+    @Autowired
+    private NotificationService notificationService;
     
     private final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     
@@ -291,6 +295,31 @@ public class ProductController {
                 "message", "Error creating product: " + e.getMessage()
             ));
         }
+    }
+
+    // Search products by name/description
+    @GetMapping("/search")
+    public ResponseEntity<Map<String, Object>> searchProducts(@RequestParam("q") String query,
+            @RequestParam(defaultValue = "1") Integer page,
+            @RequestParam(defaultValue = "20") Integer limit) {
+        if (query == null || query.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("success", false, "message", "Query 'q' is required"));
+        }
+        List<Product> results = productRepository.searchProducts(query);
+        int total = results.size();
+        int start = Math.max(0, (page - 1) * limit);
+        int end = Math.min(total, start + limit);
+        List<Product> paginated = start < end ? results.subList(start, end) : new ArrayList<>();
+        Map<String, Object> pagination = new HashMap<>();
+        pagination.put("page", page);
+        pagination.put("pages", (int) Math.ceil((double) total / limit));
+        return ResponseEntity.ok(Map.of(
+            "success", true,
+            "count", paginated.size(),
+            "total", total,
+            "pagination", pagination,
+            "data", paginated
+        ));
     }
 
     // Upload default image for a product (stores locally and returns array of URLs)

@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Registration Confirmation</title>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: #27ae60; color: white; padding: 20px; text-align: center; }
+        .content { padding: 20px; background: #f9f9f9; }
+        .info-box { background: white; padding: 15px; margin: 10px 0; border-left: 4px solid #27ae60; }
+        .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Registration Received!</h1>
+        </div>
+        <div class="content">
+            <p>Hello <span th:text="${vendorName}">Vendor</span>,</p>
+            
+            <p>Thank you for registering as a vendor with Daad! We have received your application and it is currently under review.</p>
+            
+            <div class="info-box">
+                <h3>Your Application Details</h3>
+                <p><strong>Business Name:</strong> <span th:text="${vendorName}">Business Name</span></p>
+                <p><strong>Email:</strong> <span th:text="${vendorEmail}">vendor@example.com</span></p>
+                <p><strong>Business Type:</strong> <span th:text="${businessType}">Business Type</span></p>
+            </div>
+            
+            <h3>What happens next?</h3>
+            <ul>
+                <li>Our admin team will review your application within 24-48 hours</li>
+                <li>You will receive an email notification once your application is approved or rejected</li>
+                <li>If approved, you'll be able to start listing your products immediately</li>
+            </ul>
+            
+            <p>If you have any questions, please don't hesitate to contact our support team.</p>
+            
+            <p>Best regards,<br>The Daad Team</p>
+        </div>
+        <div class="footer">
+            <p>This is an automated notification from Daad E-commerce Platform</p>
+        </div>
+    </div>
+</body>
+</html>

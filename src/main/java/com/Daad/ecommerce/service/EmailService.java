@@ -16,6 +16,9 @@ public class EmailService {
     @Autowired
     private JavaMailSender mailSender;
 
+    @Autowired
+    private AccountEmailService accountEmailService;
+
     @Value("${spring.mail.username}")
     private String fromEmail;
 
@@ -61,21 +64,8 @@ public class EmailService {
     }
 
     public void sendWelcomeEmail(User user) {
-        String subject = "Welcome to Our E-commerce Platform!";
-        String body = String.format(
-            "Hello %s,\n\n" +
-            "Welcome to our e-commerce platform! Your account has been created successfully.\n\n" +
-            "You can now:\n" +
-            "- Browse our products\n" +
-            "- Add items to your cart\n" +
-            "- Place orders\n" +
-            "- Manage your profile\n\n" +
-            "If you have any questions, feel free to contact our support team.\n\n" +
-            "Best regards,\nYour E-commerce Team",
-            user.getUsername()
-        );
-        
-        sendEmail(user.getEmail(), subject, body);
+        // Use the new template-based service
+        accountEmailService.sendWelcomeNotification(user);
     }
 
     public void sendPasswordChangeConfirmation(User user) {

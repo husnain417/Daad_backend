@@ -199,6 +199,26 @@ public class OrderRepository {
         return orders.isEmpty() ? Optional.empty() : Optional.of(orders.get(0));
     }
 
+    public void insertOrderItems(String orderId, List<Order.Item> items) {
+        if (items == null || items.isEmpty()) return;
+        String sql = """
+            INSERT INTO order_items (
+                order_id, product_id, product_name, color, size, quantity, price
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """;
+        for (Order.Item it : items) {
+            jdbcTemplate.update(sql,
+                parseUUID(orderId),
+                parseUUID(it.getProduct()),
+                it.getProductName(),
+                it.getColor(),
+                it.getSize(),
+                it.getQuantity(),
+                it.getPrice()
+            );
+        }
+    }
+
     public long count() {
         String sql = "SELECT COUNT(*) FROM orders";
         Integer count = jdbcTemplate.queryForObject(sql, Integer.class);
@@ -230,6 +250,31 @@ public class OrderRepository {
             sql = "SELECT * FROM orders WHERE order_status = ?::order_status ORDER BY created_at DESC";
             return jdbcTemplate.query(sql, orderRowMapper, status);
         }
+    }
+
+    public List<Order> findByVendorId(String vendorId) {
+        String sql = """
+            SELECT DISTINCT o.*
+            FROM orders o
+            JOIN order_items oi ON oi.order_id = o.id
+            JOIN products p ON p.id = oi.product_id
+            WHERE p.vendor_id = ?
+            ORDER BY o.created_at DESC
+            """;
+        return jdbcTemplate.query(sql, orderRowMapper, parseUUID(vendorId));
+    }
+
+    public boolean vendorOwnsOrder(String orderId, String vendorId) {
+        String sql = """
+            SELECT EXISTS (
+                SELECT 1
+                FROM order_items oi
+                JOIN products p ON p.id = oi.product_id
+                WHERE oi.order_id = ? AND p.vendor_id = ?
+            )
+            """;
+        Boolean exists = jdbcTemplate.queryForObject(sql, Boolean.class, parseUUID(orderId), parseUUID(vendorId));
+        return exists != null && exists;
     }
 
     public double sumTotalExcludingCancelled() {
@@ -300,6 +345,11 @@ public class OrderRepository {
         jdbcTemplate.update(sql, trackingNumber, orderId);
     }
 
+    public void cancelOrder(String orderId, String reason) {
+        String sql = "UPDATE orders SET order_status = 'cancelled', cancelled_at = NOW(), cancellation_reason = ?, updated_at = NOW() WHERE id = ?";
+        jdbcTemplate.update(sql, reason, orderId);
+    }
+
     public void updatePaymentReceipt(String orderId, String receiptUrl) {
         String sql = "UPDATE orders SET payment_receipt_url = ?, payment_receipt_uploaded = true, updated_at = NOW() WHERE id = ?";
         jdbcTemplate.update(sql, receiptUrl, orderId);
@@ -315,5 +365,67 @@ public class OrderRepository {
         return jdbcTemplate.query(sql, orderRowMapper, 
             Timestamp.valueOf(java.time.LocalDateTime.parse(startDate)),
             Timestamp.valueOf(java.time.LocalDateTime.parse(endDate)));
+    }
+
+    // Vendor analytics aggregates based on order_items to attribute revenue correctly
+    public Map<String, Object> vendorSalesReport(String vendorId) {
+        String sql = """
+            SELECT 
+                COUNT(DISTINCT o.id) AS total_orders,
+                COALESCE(SUM(oi.quantity), 0) AS total_items_sold,
+                COALESCE(SUM(oi.quantity * oi.price), 0) AS total_revenue
+            FROM orders o
+            JOIN order_items oi ON oi.order_id = o.id
+            JOIN products p ON p.id = oi.product_id
+            WHERE p.vendor_id = ? AND o.order_status != 'cancelled'
+            """;
+        Map<String, Object> result = jdbcTemplate.queryForMap(sql, parseUUID(vendorId));
+        Map<String, Object> out = new java.util.HashMap<>();
+        out.put("totalOrders", ((Number) result.get("total_orders")).longValue());
+        out.put("totalItemsSold", ((Number) result.get("total_items_sold")).longValue());
+        out.put("totalRevenue", ((Number) result.get("total_revenue")).doubleValue());
+        return out;
+    }
+
+    public Map<String, Object> vendorCustomerInsights(String vendorId) {
+        String distinctSql = """
+            SELECT COUNT(DISTINCT o.customer_email) AS distinct_customers
+            FROM orders o
+            JOIN order_items oi ON oi.order_id = o.id
+            JOIN products p ON p.id = oi.product_id
+            WHERE p.vendor_id = ? AND o.order_status != 'cancelled'
+            """;
+        Long distinctCustomers = jdbcTemplate.queryForObject(distinctSql, Long.class, parseUUID(vendorId));
+
+        String repeatSql = """
+            SELECT COUNT(*) FROM (
+                SELECT o.customer_email, COUNT(DISTINCT o.id) cnt
+                FROM orders o
+                JOIN order_items oi ON oi.order_id = o.id
+                JOIN products p ON p.id = oi.product_id
+                WHERE p.vendor_id = ? AND o.order_status != 'cancelled'
+                GROUP BY o.customer_email
+                HAVING COUNT(DISTINCT o.id) > 1
+            ) t
+            """;
+        Long repeatCustomers = jdbcTemplate.queryForObject(repeatSql, Long.class, parseUUID(vendorId));
+
+        String aovSql = """
+            SELECT AVG(order_total) FROM (
+                SELECT o.id, SUM(oi.quantity * oi.price) AS order_total
+                FROM orders o
+                JOIN order_items oi ON oi.order_id = o.id
+                JOIN products p ON p.id = oi.product_id
+                WHERE p.vendor_id = ? AND o.order_status != 'cancelled'
+                GROUP BY o.id
+            ) s
+            """;
+        Double avgOrderValue = jdbcTemplate.queryForObject(aovSql, Double.class, parseUUID(vendorId));
+
+        Map<String, Object> out = new java.util.HashMap<>();
+        out.put("distinctCustomers", distinctCustomers != null ? distinctCustomers : 0L);
+        out.put("repeatCustomers", repeatCustomers != null ? repeatCustomers : 0L);
+        out.put("averageOrderValue", avgOrderValue != null ? avgOrderValue : 0.0);
+        return out;
     }
 }
