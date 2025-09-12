@@ -195,8 +195,39 @@ public class OrderRepository {
 
     public Optional<Order> findById(String id) {
         String sql = "SELECT * FROM orders WHERE id = ? LIMIT 1";
-        List<Order> orders = jdbcTemplate.query(sql, orderRowMapper, id);
-        return orders.isEmpty() ? Optional.empty() : Optional.of(orders.get(0));
+        List<Order> orders = jdbcTemplate.query(sql, orderRowMapper, parseUUID(id));
+        if (orders.isEmpty()) {
+            return Optional.empty();
+        }
+        
+        Order order = orders.get(0);
+        // Load order items
+        loadOrderItems(order);
+        return Optional.of(order);
+    }
+    
+    private void loadOrderItems(Order order) {
+        String sql = """
+            SELECT oi.product_id, p.vendor_id, oi.product_name, oi.color, oi.size, oi.quantity, oi.price
+            FROM order_items oi
+            LEFT JOIN products p ON p.id = oi.product_id
+            WHERE oi.order_id = ?
+            ORDER BY oi.product_name
+            """;
+        
+        List<Order.Item> items = jdbcTemplate.query(sql, (rs, rowNum) -> {
+            Order.Item item = new Order.Item();
+            item.setProduct(rs.getString("product_id"));
+            item.setVendorId(rs.getString("vendor_id"));
+            item.setProductName(rs.getString("product_name"));
+            item.setColor(rs.getString("color"));
+            item.setSize(rs.getString("size"));
+            item.setQuantity(rs.getInt("quantity"));
+            item.setPrice(rs.getDouble("price"));
+            return item;
+        }, parseUUID(order.getId()));
+        
+        order.setItems(items);
     }
 
     public void insertOrderItems(String orderId, List<Order.Item> items) {
@@ -233,23 +264,39 @@ public class OrderRepository {
 
     public List<Order> findAllSortedByCreatedDesc() {
         String sql = "SELECT * FROM orders ORDER BY created_at DESC";
-        return jdbcTemplate.query(sql, orderRowMapper);
+        List<Order> orders = jdbcTemplate.query(sql, orderRowMapper);
+        // Load order items for each order
+        for (Order order : orders) {
+            loadOrderItems(order);
+        }
+        return orders;
     }
 
     public List<Order> findByUserId(String userId) {
         String sql = "SELECT * FROM orders WHERE user_id = ? ORDER BY created_at DESC";
-        return jdbcTemplate.query(sql, orderRowMapper, parseUUID(userId));
+        List<Order> orders = jdbcTemplate.query(sql, orderRowMapper, parseUUID(userId));
+        // Load order items for each order
+        for (Order order : orders) {
+            loadOrderItems(order);
+        }
+        return orders;
     }
 
     public List<Order> findAllByStatusOptional(String status) {
         String sql;
+        List<Order> orders;
         if (status == null) {
             sql = "SELECT * FROM orders ORDER BY created_at DESC";
-            return jdbcTemplate.query(sql, orderRowMapper);
+            orders = jdbcTemplate.query(sql, orderRowMapper);
         } else {
             sql = "SELECT * FROM orders WHERE order_status = ?::order_status ORDER BY created_at DESC";
-            return jdbcTemplate.query(sql, orderRowMapper, status);
+            orders = jdbcTemplate.query(sql, orderRowMapper, status);
         }
+        // Load order items for each order
+        for (Order order : orders) {
+            loadOrderItems(order);
+        }
+        return orders;
     }
 
     public List<Order> findByVendorId(String vendorId) {
@@ -261,7 +308,12 @@ public class OrderRepository {
             WHERE p.vendor_id = ?
             ORDER BY o.created_at DESC
             """;
-        return jdbcTemplate.query(sql, orderRowMapper, parseUUID(vendorId));
+        List<Order> orders = jdbcTemplate.query(sql, orderRowMapper, parseUUID(vendorId));
+        // Load order items for each order
+        for (Order order : orders) {
+            loadOrderItems(order);
+        }
+        return orders;
     }
 
     public boolean vendorOwnsOrder(String orderId, String vendorId) {
@@ -332,27 +384,27 @@ public class OrderRepository {
 
     public void updateOrderStatus(String orderId, String status) {
         String sql = "UPDATE orders SET order_status = ?::order_status, updated_at = NOW() WHERE id = ?";
-        jdbcTemplate.update(sql, status, orderId);
+        jdbcTemplate.update(sql, status, parseUUID(orderId));
     }
 
     public void updatePaymentStatus(String orderId, String paymentStatus) {
         String sql = "UPDATE orders SET payment_status = ?::payment_status, updated_at = NOW() WHERE id = ?";
-        jdbcTemplate.update(sql, paymentStatus, orderId);
+        jdbcTemplate.update(sql, paymentStatus, parseUUID(orderId));
     }
 
     public void updateTrackingNumber(String orderId, String trackingNumber) {
         String sql = "UPDATE orders SET tracking_number = ?, updated_at = NOW() WHERE id = ?";
-        jdbcTemplate.update(sql, trackingNumber, orderId);
+        jdbcTemplate.update(sql, trackingNumber, parseUUID(orderId));
     }
 
     public void cancelOrder(String orderId, String reason) {
         String sql = "UPDATE orders SET order_status = 'cancelled', cancelled_at = NOW(), cancellation_reason = ?, updated_at = NOW() WHERE id = ?";
-        jdbcTemplate.update(sql, reason, orderId);
+        jdbcTemplate.update(sql, reason, parseUUID(orderId));
     }
 
     public void updatePaymentReceipt(String orderId, String receiptUrl) {
         String sql = "UPDATE orders SET payment_receipt_url = ?, payment_receipt_uploaded = true, updated_at = NOW() WHERE id = ?";
-        jdbcTemplate.update(sql, receiptUrl, orderId);
+        jdbcTemplate.update(sql, receiptUrl, parseUUID(orderId));
     }
 
     public List<Order> findRecentOrders(int limit) {

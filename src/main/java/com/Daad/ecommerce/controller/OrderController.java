@@ -65,6 +65,8 @@ public class OrderController {
 			List<Map<String, Object>> items = (List<Map<String, Object>>) orderData.get("items");
 			@SuppressWarnings("unchecked")
 			Map<String, Object> shippingAddressMap = (Map<String, Object>) orderData.get("shippingAddress");
+			@SuppressWarnings("unchecked")
+			Map<String, Object> customerInfoMap = (Map<String, Object>) orderData.get("customerInfo");
 			double subtotal = Double.parseDouble(orderData.get("subtotal").toString());
 			double shippingCharges = orderData.get("shippingCharges") != null ? Double.parseDouble(orderData.get("shippingCharges").toString()) : 0.0;
 			double total = Double.parseDouble(orderData.get("total").toString());
@@ -156,7 +158,10 @@ public class OrderController {
 			sa.setPostalCode(Objects.toString(shippingAddressMap.get("postalCode"), null));
 			sa.setCountry(Objects.toString(shippingAddressMap.get("country"), null));
 			sa.setPhoneNumber(Objects.toString(shippingAddressMap.get("phoneNumber"), null));
-			sa.setEmail(Objects.toString(shippingAddressMap.get("email"), null));
+			
+			// Get email from customerInfo (for notifications)
+			String email = Objects.toString(customerInfoMap.get("email"), null);
+			sa.setEmail(email);
 			order.setShippingAddress(sa);
 			order.setCustomerEmail(sa.getEmail());
 			order.setSubtotal(subtotal);
@@ -185,12 +190,15 @@ public class OrderController {
 			}
 
 			try {
-				String email = sa.getEmail();
 				if (email != null && !email.isBlank()) {
 					// Use the new notification service
 					notificationService.notifyOrderPlaced(saved);
+				} else {
+					System.out.println("Warning: No email address provided for order notification. Order ID: " + saved.getId());
 				}
-			} catch (Exception ignored) {}
+			} catch (Exception e) {
+				System.err.println("Failed to send order notification: " + e.getMessage());
+			}
 
 			return ResponseEntity.status(201).body(Map.of("success", true, "message", "Order created successfully", "order", saved));
 
@@ -220,6 +228,42 @@ public class OrderController {
 			m.put("email", o.getCustomerEmail());
 			m.put("orderStatus", o.getOrderStatus());
 			m.put("createdAt", o.getCreatedAt());
+			m.put("total", o.getTotal());
+			m.put("subtotal", o.getSubtotal());
+			m.put("shippingCharges", o.getShippingCharges());
+			m.put("paymentMethod", o.getPaymentMethod());
+			m.put("paymentStatus", o.getPaymentStatus());
+			m.put("trackingNumber", o.getTrackingNumber());
+			m.put("estimatedDelivery", o.getEstimatedDelivery());
+			m.put("deliveredAt", o.getDeliveredAt());
+			m.put("cancelledAt", o.getCancelledAt());
+			m.put("cancellationReason", o.getCancellationReason());
+			m.put("items", o.getItems());
+			
+			// Get vendor information from order items
+			Set<String> vendorIds = o.getItems().stream()
+				.map(item -> item.getVendorId())
+				.filter(vendorId -> vendorId != null)
+				.collect(Collectors.toSet());
+			
+			List<Map<String, Object>> vendors = new ArrayList<>();
+			for (String vendorId : vendorIds) {
+				vendorRepository.findById(vendorId).ifPresent(vendor -> {
+					Map<String, Object> vendorInfo = new HashMap<>();
+					vendorInfo.put("id", vendor.getId());
+					vendorInfo.put("businessName", vendor.getBusinessName());
+					vendorInfo.put("businessType", vendor.getBusinessType());
+					vendorInfo.put("status", vendor.getStatus());
+					vendorInfo.put("rating", vendor.getRating());
+					if (vendor.getUser() != null) {
+						vendorInfo.put("email", vendor.getUser().getEmail());
+					}
+					vendorInfo.put("phone", vendor.getPhoneNumber());
+					vendors.add(vendorInfo);
+				});
+			}
+			m.put("vendors", vendors);
+			
 			return m;
 		}).collect(Collectors.toList());
 

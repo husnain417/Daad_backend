@@ -88,7 +88,7 @@ public class ProductRepository {
             return;
         }
         
-        String sql = "SELECT color, color_code, size, stock, is_available, min_stock_threshold FROM product_inventory WHERE product_id = ? ORDER BY color, size";
+        String sql = "SELECT color, color_code, \"size\", stock, is_available, min_stock_threshold FROM product_inventory WHERE product_id = ? ORDER BY color, \"size\"";
         List<Map<String, Object>> inventoryRows = jdbcTemplate.queryForList(sql, java.util.UUID.fromString(product.getId()));
         
         Map<String, Product.ColorInventory> colorMap = new HashMap<>();
@@ -125,6 +125,67 @@ public class ProductRepository {
         product.calculateTotalStock();
     }
     
+    // Method to load default images for a product
+    private void loadDefaultImages(Product product) {
+        if (product.getId() == null) {
+            return;
+        }
+        
+        String sql = """
+            SELECT url, alt_text, file_id, is_primary
+            FROM product_images
+            WHERE product_id = ?::uuid AND color IS NULL
+            ORDER BY is_primary DESC, created_at ASC
+            """;
+        
+        List<Map<String, Object>> imageData = jdbcTemplate.queryForList(sql, java.util.UUID.fromString(product.getId()));
+        
+        List<Product.Image> defaultImages = new ArrayList<>();
+        for (Map<String, Object> row : imageData) {
+            Product.Image image = new Product.Image();
+            image.setUrl((String) row.get("url"));
+            image.setAlt((String) row.get("alt_text"));
+            image.setFileId((String) row.get("file_id"));
+            image.setIsPrimary((Boolean) row.get("is_primary"));
+            defaultImages.add(image);
+        }
+        
+        product.setDefaultImages(defaultImages);
+    }
+    
+    // Method to save product images to database
+    public void saveProductImages(String productId, List<String> imageUrls, List<String> altTexts, List<String> fileIds) {
+        if (imageUrls == null || imageUrls.isEmpty()) {
+            return;
+        }
+        
+        String sql = """
+            INSERT INTO product_images (product_id, color, url, alt_text, file_id, is_primary, created_at)
+            VALUES (?, NULL, ?, ?, ?, ?, NOW())
+            """;
+        
+        for (int i = 0; i < imageUrls.size(); i++) {
+            String url = imageUrls.get(i);
+            String altText = (altTexts != null && i < altTexts.size()) ? altTexts.get(i) : null;
+            String fileId = (fileIds != null && i < fileIds.size()) ? fileIds.get(i) : null;
+            boolean isPrimary = (i == 0); // First image is primary
+            
+            jdbcTemplate.update(sql, 
+                java.util.UUID.fromString(productId), 
+                url, 
+                altText, 
+                fileId, 
+                isPrimary
+            );
+        }
+    }
+    
+    // Method to delete product images
+    public void deleteProductImages(String productId) {
+        String sql = "DELETE FROM product_images WHERE product_id = ?::uuid";
+        jdbcTemplate.update(sql, productId);
+    }
+    
     // Basic CRUD operations
     public List<Product> findAll() {
         String sql = """
@@ -142,9 +203,10 @@ public class ProductRepository {
             """;
         List<Product> products = jdbcTemplate.query(sql, productRowMapper);
         
-        // Load inventory for each product
+        // Load inventory and default images for each product
         for (Product product : products) {
             loadInventory(product);
+            loadDefaultImages(product);
         }
         
         return products;
@@ -172,6 +234,7 @@ public class ProductRepository {
         
         Product product = products.get(0);
         loadInventory(product);
+        loadDefaultImages(product);
         return Optional.of(product);
     }
     
@@ -226,29 +289,40 @@ public class ProductRepository {
     private Product update(Product product) {
         String sql = """
             UPDATE products SET 
-                name = ?, description = ?, price = ?, category_id = ?::uuid, vendor_id = ?::uuid,
+                name = ?, description = ?, price = ?, category_id = ?, vendor_id = ?,
                 gender = ?::product_gender, total_stock = ?, discount_percentage = ?,
                 discount_valid_until = ?, average_rating = ?, status = ?::product_status,
                 is_active = ?, is_customers_also_bought = ?, updated_at = NOW()
-            WHERE id = ?::uuid
+            WHERE id = ?
             """;
+
+        java.util.UUID categoryUuid = null;
+        java.util.UUID vendorUuid = null;
+        java.util.UUID idUuid = null;
+        try { categoryUuid = product.getCategory() != null && product.getCategory().getId() != null ? java.util.UUID.fromString(product.getCategory().getId()) : null; } catch (Exception ignored) {}
+        try { vendorUuid = product.getVendor() != null && product.getVendor().getId() != null ? java.util.UUID.fromString(product.getVendor().getId()) : null; } catch (Exception ignored) {}
+        try { idUuid = product.getId() != null ? java.util.UUID.fromString(product.getId()) : null; } catch (Exception ignored) {}
+
+        Timestamp discountUntil = null;
+        if (product.getDiscount() != null && product.getDiscount().getEndDate() != null) {
+            try { discountUntil = Timestamp.valueOf(java.time.LocalDateTime.parse(product.getDiscount().getEndDate())); } catch (Exception ignored) {}
+        }
 
         jdbcTemplate.update(sql,
             product.getName(),
             product.getDescription(),
             product.getPrice(),
-            product.getCategory().getId(),
-            product.getVendor().getId(),
+            categoryUuid,
+            vendorUuid,
             product.getGender(),
             product.getTotalStock(),
             product.getDiscount() != null ? product.getDiscount().getDiscountValue() : BigDecimal.ZERO,
-            product.getDiscount() != null && product.getDiscount().getEndDate() != null ? 
-                Timestamp.valueOf(java.time.LocalDateTime.parse(product.getDiscount().getEndDate())) : null,
+            discountUntil,
             product.getAverageRating(),
             product.getStatus(),
             product.getIsActive(),
             product.getIsCustomersAlsoBought(),
-            product.getId()
+            idUuid
         );
 
         return product;
@@ -409,9 +483,26 @@ public class ProductRepository {
     
     // Search
     public List<Product> searchProducts(String searchTerm) {
-        String sql = "SELECT * FROM products WHERE (name ILIKE ? OR description ILIKE ?) AND is_active = true ORDER BY name ASC";
+        String sql = """
+            SELECT p.*,
+                   c.name as category_name, c.slug as category_slug, c.description as category_description,
+                   c.image_url as category_image_url, c.image_public_id as category_image_public_id,
+                   c.parent_category_id as category_parent_id, c.level as category_level, c.is_active as category_is_active,
+                   v.business_name as vendor_business_name, v.business_type as vendor_business_type,
+                   v.status as vendor_status, v.rating_average as vendor_rating
+            FROM products p
+            LEFT JOIN categories c ON p.category_id = c.id
+            LEFT JOIN vendors v ON p.vendor_id = v.id
+            WHERE (p.name ILIKE ? OR p.description ILIKE ?) AND p.is_active = true
+            ORDER BY p.name ASC
+            """;
         String searchPattern = "%" + searchTerm + "%";
-        return jdbcTemplate.query(sql, productRowMapper, searchPattern, searchPattern);
+        List<Product> products = jdbcTemplate.query(sql, productRowMapper, searchPattern, searchPattern);
+        for (Product product : products) {
+            loadInventory(product);
+            loadDefaultImages(product);
+        }
+        return products;
     }
     
     // Update stock
@@ -439,30 +530,38 @@ public class ProductRepository {
     }
     
     public void addSizeToColor(String productId, String color, String colorCode, String size, int initialStock) {
-        String sql = """
-            INSERT INTO product_inventory (product_id, color, color_code, size, stock, is_available, min_stock_threshold) 
-            VALUES (?, ?, ?, ?, ?, ?, 5) 
-            ON CONFLICT (product_id, color, size) 
-            DO UPDATE SET 
-                stock = EXCLUDED.stock, 
-                is_available = EXCLUDED.is_available,
-                color_code = EXCLUDED.color_code,
-                updated_at = NOW()
+        String updateSql = """
+            UPDATE product_inventory 
+            SET stock = ?, is_available = ?, color_code = ?, updated_at = NOW()
+            WHERE product_id = ?::uuid AND color = ? AND "size" = ?
             """;
-        
+
+        String insertSql = """
+            INSERT INTO product_inventory (product_id, color, color_code, "size", stock, is_available, min_stock_threshold)
+            VALUES (?::uuid, ?, ?, ?, ?, ?, 5)
+            """;
+
         boolean isAvailable = initialStock > 0;
-        
-        jdbcTemplate.update(sql, 
-            java.util.UUID.fromString(productId), // product_id as UUID
-            color,               // color
-            colorCode,           // color_code
-            size,                // size
-            initialStock,        // stock
-            isAvailable          // is_available
-            // min_stock_threshold is set to 5 directly in SQL
+        int rows = jdbcTemplate.update(updateSql,
+            initialStock,
+            isAvailable,
+            colorCode,
+            productId,
+            color,
+            size
         );
-        
-        // Update total stock in products table
+
+        if (rows == 0) {
+            jdbcTemplate.update(insertSql,
+                productId,
+                color,
+                colorCode,
+                size,
+                initialStock,
+                isAvailable
+            );
+        }
+
         updateTotalStock(productId);
     }
     
@@ -470,7 +569,7 @@ public class ProductRepository {
         String sql = """
             UPDATE product_inventory 
             SET stock = ?, is_available = ?, updated_at = NOW() 
-            WHERE product_id = ? AND color = ? AND size = ?
+            WHERE product_id = ? AND color = ? AND "size" = ?
             """;
         boolean isAvailable = newStock > 0;
         jdbcTemplate.update(sql, newStock, isAvailable, java.util.UUID.fromString(productId), color, size);
@@ -485,7 +584,7 @@ public class ProductRepository {
             SET stock = GREATEST(0, stock - ?), 
                 is_available = (GREATEST(0, stock - ?) > 0), 
                 updated_at = NOW() 
-            WHERE product_id = ? AND color = ? AND size = ?
+            WHERE product_id = ? AND color = ? AND "size" = ?
             """;
         jdbcTemplate.update(sql, quantity, quantity, java.util.UUID.fromString(productId), color, size);
         
@@ -508,7 +607,7 @@ public class ProductRepository {
     }
     
     public List<Map<String, Object>> getLowStockItems(String productId) {
-        String sql = "SELECT color, size, stock, min_stock_threshold FROM product_inventory WHERE product_id = ? AND stock <= min_stock_threshold ORDER BY stock ASC";
+        String sql = "SELECT color, \"size\", stock, min_stock_threshold FROM product_inventory WHERE product_id = ? AND stock <= min_stock_threshold ORDER BY stock ASC";
         List<Map<String, Object>> results = jdbcTemplate.queryForList(sql, java.util.UUID.fromString(productId));
         
         // Convert Long values to Integer for consistency
@@ -542,13 +641,22 @@ public class ProductRepository {
     
     public Map<String, Integer> getStockSummary(String productId) {
         String sql = "SELECT color, SUM(stock) as total_stock FROM product_inventory WHERE product_id = ? GROUP BY color ORDER BY color";
-        List<Map<String, Object>> results = jdbcTemplate.queryForList(sql, productId);
+        java.util.UUID uuid = java.util.UUID.fromString(productId);
+        List<Map<String, Object>> results = jdbcTemplate.queryForList(sql, uuid);
         
         Map<String, Integer> summary = new HashMap<>();
         for (Map<String, Object> row : results) {
             String color = (String) row.get("color");
-            Integer stock = (Integer) row.get("total_stock");
-            summary.put(color, stock != null ? stock : 0);
+            Object stockObj = row.get("total_stock");
+            int stock;
+            if (stockObj instanceof Number) {
+                stock = ((Number) stockObj).intValue();
+            } else if (stockObj != null) {
+                try { stock = Integer.parseInt(stockObj.toString()); } catch (Exception e) { stock = 0; }
+            } else {
+                stock = 0;
+            }
+            summary.put(color, stock);
         }
         return summary;
     }
@@ -675,24 +783,36 @@ public class ProductRepository {
                 gender = ?::product_gender, total_stock = ?, discount_percentage = ?, 
                 discount_valid_until = ?, average_rating = ?, status = ?::product_status, 
                 is_active = ?, is_customers_also_bought = ?, updated_at = NOW()
-            WHERE id = ?::uuid
+            WHERE id = ?
             """;
-        
+
+        java.util.UUID categoryUuid = null;
+        java.util.UUID vendorUuid = null;
+        java.util.UUID idUuid = null;
+        try { categoryUuid = product.getCategory() != null && product.getCategory().getId() != null ? java.util.UUID.fromString(product.getCategory().getId()) : null; } catch (Exception ignored) {}
+        try { vendorUuid = product.getVendor() != null && product.getVendor().getId() != null ? java.util.UUID.fromString(product.getVendor().getId()) : null; } catch (Exception ignored) {}
+        try { idUuid = product.getId() != null ? java.util.UUID.fromString(product.getId()) : null; } catch (Exception ignored) {}
+
+        Timestamp discountUntil = null;
+        if (product.getDiscount() != null && product.getDiscount().getEndDate() != null) {
+            try { discountUntil = Timestamp.valueOf(java.time.LocalDateTime.parse(product.getDiscount().getEndDate())); } catch (Exception ignored) {}
+        }
+
         int rowsAffected = jdbcTemplate.update(sql,
             product.getName(),
             product.getDescription(),
             product.getPrice(),
-            product.getCategory() != null ? product.getCategory().getId() : null,
-            product.getVendor() != null ? product.getVendor().getId() : null,
+            categoryUuid,
+            vendorUuid,
             product.getGender(),
             product.getTotalStock(),
             product.getDiscount() != null ? product.getDiscount().getDiscountValue() : null,
-            product.getDiscount() != null ? product.getDiscount().getEndDate() : null,
+            discountUntil,
             product.getAverageRating(),
             product.getStatus(),
             product.getIsActive(),
             product.getIsCustomersAlsoBought(),
-            product.getId()
+            idUuid
         );
         
         return rowsAffected > 0;
@@ -775,9 +895,10 @@ public class ProductRepository {
         
         List<Product> products = jdbcTemplate.query(sqlBuilder.toString(), productRowMapper, params.toArray());
         
-        // Load inventory for each product
+        // Load inventory and default images for each product
         for (Product product : products) {
             loadInventory(product);
+            loadDefaultImages(product);
         }
         
         return products;

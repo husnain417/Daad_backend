@@ -59,6 +59,31 @@ public class VendorRepository {
         }
     }
 
+    // Helper method to normalize business type to match enum values
+    private String normalizeBusinessType(String businessType) {
+        if (businessType == null) {
+            return "business"; // default
+        }
+        
+        String normalized = businessType.toLowerCase().trim();
+        switch (normalized) {
+            case "individual":
+            case "personal":
+            case "sole proprietor":
+                return "individual";
+            case "company":
+            case "corporation":
+            case "corp":
+                return "company";
+            case "business":
+            case "retail":
+            case "store":
+            case "shop":
+            default:
+                return "business";
+        }
+    }
+
     private final RowMapper<Vendor> vendorRowMapper = new RowMapper<Vendor>() {
         @Override
         public Vendor mapRow(ResultSet rs, int rowNum) throws SQLException {
@@ -157,48 +182,59 @@ public class VendorRepository {
     }
     
     private Vendor insert(Vendor vendor) {
+        vendor.setId(UUID.randomUUID().toString()); // Set ID before saving
         vendor.setCreatedAt(Instant.now());
         vendor.setUpdatedAt(Instant.now());
     
         String sql = """
             INSERT INTO vendors (
-                user_id, business_name, business_type, phone_number,
-                business_address_line1, business_address_line2, business_city,
-                business_state, business_postal_code, business_country,
-                description, logo_url, status, approved_by, approved_at,
-                bank_account_number, bank_routing_number, bank_account_holder_name,
-                bank_name, tax_id, return_window, shipping_policy, return_policy,
-                commission, rating_average, profile_completed
-            ) VALUES (?, ?, ?::business_type, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::vendor_status, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                id, user_id, business_name, business_type, phone_number, 
+                business_address_line1, business_address_line2, business_city, 
+                business_state, business_postal_code, business_country, 
+                description, logo_url, logo_public_id, status, approved_by, approved_at, 
+                bank_account_number, bank_routing_number, bank_account_holder_name, 
+                bank_name, tax_id, return_window, shipping_policy, return_policy, 
+                commission, rating_average, rating_count, profile_completed,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?::business_type, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 
+                     ?::vendor_status, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
     
+        // Normalize business type to match enum
+        String normalizedBusinessType = normalizeBusinessType(vendor.getBusinessType());
+    
         jdbcTemplate.update(sql,
-            parseUUID(vendor.getUser().getId()),                    // 1. user_id
-            vendor.getBusinessName(),                               // 2. business_name
-            vendor.getBusinessType(),                               // 3. business_type
-            vendor.getPhoneNumber(),                                // 4. phone_number
-            vendor.getBusinessAddress().getAddressLine1(),          // 5. business_address_line1
-            vendor.getBusinessAddress().getAddressLine2(),          // 6. business_address_line2
-            vendor.getBusinessAddress().getCity(),                  // 7. business_city
-            vendor.getBusinessAddress().getState(),                 // 8. business_state
-            vendor.getBusinessAddress().getPostalCode(),            // 9. business_postal_code
-            vendor.getBusinessAddress().getCountry(),               // 10. business_country
-            vendor.getDescription(),                                // 11. description
-            vendor.getLogo(),                                       // 12. logo_url
-            vendor.getStatus() != null ? vendor.getStatus() : "pending", // 13. status
-            vendor.getApprovedBy() != null ? parseUUID(vendor.getApprovedBy().getId()) : null, // 14. approved_by
-            vendor.getApprovedAt() != null ? Timestamp.from(vendor.getApprovedAt()) : null,   // 15. approved_at
-            null, // 16. bank_account_number
-            null, // 17. bank_routing_number  
-            null, // 18. bank_account_holder_name
-            null, // 19. bank_name
-            vendor.getTaxId(),                                      // 20. tax_id
-            30,   // 21. return_window (default)
-            null, // 22. shipping_policy
-            null, // 23. return_policy  
-            vendor.getCommission() != null ? vendor.getCommission() : 10.0, // 24. commission
-            vendor.getRating() != null ? vendor.getRating() : 0.0, // 25. rating_average
-            vendor.getProfileCompleted() != null ? vendor.getProfileCompleted() : false // 26. profile_completed
+            parseUUID(vendor.getId()),                              // 1. id
+            parseUUID(vendor.getUser().getId()),                    // 2. user_id
+            vendor.getBusinessName(),                               // 3. business_name
+            normalizedBusinessType,                                 // 4. business_type (normalized)
+            vendor.getPhoneNumber(),                                // 5. phone_number
+            vendor.getBusinessAddress().getAddressLine1(),          // 6. business_address_line1
+            vendor.getBusinessAddress().getAddressLine2(),          // 7. business_address_line2
+            vendor.getBusinessAddress().getCity(),                  // 8. business_city
+            vendor.getBusinessAddress().getState(),                 // 9. business_state
+            vendor.getBusinessAddress().getPostalCode(),            // 10. business_postal_code
+            vendor.getBusinessAddress().getCountry(),               // 11. business_country
+            vendor.getDescription(),                                // 12. description
+            vendor.getLogo(),                                       // 13. logo_url
+            null,                                                   // 14. logo_public_id
+            vendor.getStatus() != null ? vendor.getStatus() : "pending", // 15. status
+            vendor.getApprovedBy() != null ? parseUUID(vendor.getApprovedBy().getId()) : null, // 16. approved_by
+            vendor.getApprovedAt() != null ? Timestamp.from(vendor.getApprovedAt()) : null,   // 17. approved_at
+            null, // 18. bank_account_number
+            null, // 19. bank_routing_number  
+            null, // 20. bank_account_holder_name
+            null, // 21. bank_name
+            vendor.getTaxId(),                                      // 22. tax_id
+            30,   // 23. return_window (default)
+            null, // 24. shipping_policy
+            null, // 25. return_policy  
+            vendor.getCommission() != null ? vendor.getCommission() : 10.0, // 26. commission
+            vendor.getRating() != null ? vendor.getRating() : 0.0, // 27. rating_average
+            0,    // 28. rating_count (default)
+            vendor.getProfileCompleted() != null ? vendor.getProfileCompleted() : false, // 29. profile_completed
+            Timestamp.from(vendor.getCreatedAt()),                  // 30. created_at
+            Timestamp.from(vendor.getUpdatedAt())                   // 31. updated_at
         );
     
         return vendor;
@@ -218,9 +254,11 @@ public class VendorRepository {
             WHERE id = ?
             """;
 
+        String normalizedBusinessType = normalizeBusinessType(vendor.getBusinessType());
+
         jdbcTemplate.update(sql,
             vendor.getBusinessName(),
-            vendor.getBusinessType(),
+            normalizedBusinessType,
             vendor.getPhoneNumber(),
             vendor.getBusinessAddress().getAddressLine1(),
             vendor.getBusinessAddress().getAddressLine2(),
@@ -280,5 +318,3 @@ public class VendorRepository {
         jdbcTemplate.update(sql, rating, Timestamp.from(Instant.now()), parseUUID(vendorId));
     }
 }
-
-

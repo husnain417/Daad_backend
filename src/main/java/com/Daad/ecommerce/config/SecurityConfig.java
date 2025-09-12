@@ -28,7 +28,15 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/", "/ping", "/uploads/**", "/api/users/register", "/api/users/login", "/api/users/google-auth", "/api/users/password-forgot", "/api/users/resend-otp", "/api/users/set-new-password", "/api/categories/**", "/api/products/**", "/api/brands/**").permitAll()
+                        .requestMatchers(
+                                "/", "/ping", "/uploads/**",
+                                "/api/users/register", "/api/users/login", "/api/users/google-auth",
+                                "/api/users/password-forgot", "/api/users/resend-otp", "/api/users/verify-otp", "/api/users/set-new-password",
+                                "/api/categories/**", "/api/products/**", "/api/brands/**",
+                                "/api/cart/**", // allow cart endpoints for guests
+                                "/api/orders/create-guest", // allow guest order creation
+                                "/api/ratings/**" // allow review/rating endpoints for guests
+                        ).permitAll()
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);

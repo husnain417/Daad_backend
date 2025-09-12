@@ -342,12 +342,14 @@ public class ProductController {
             String baseUrl = request.getScheme() + "://" + request.getServerName() + ":" + request.getServerPort();
 
             List<String> uploadedUrls = new ArrayList<>();
+            List<String> fileIds = new ArrayList<>();
             for (MultipartFile image : images) {
                 if (image != null && !image.isEmpty()) {
                     var uploaded = localUploadService.uploadMultipart(image, "product/" + productId + "/default");
                     // Convert to full URL
                     String fullUrl = baseUrl + uploaded.url;
                     uploadedUrls.add(fullUrl);
+                    fileIds.add(uploaded.filename); // Store the filename as file_id
                 }
             }
 
@@ -357,6 +359,9 @@ public class ProductController {
                         "message", "No valid images were uploaded"
                 ));
             }
+
+            // Save images to database
+            productRepository.saveProductImages(productId, uploadedUrls, null, fileIds);
 
             // Update product status from draft to awaiting_approval
             productRepository.updateStatus(productId, "awaiting_approval");
@@ -492,7 +497,35 @@ public class ProductController {
                 ));
             }
             
-            productRepository.addColorInventory(productId, color, colorCode != null ? colorCode : "#000000");
+            // If sizes are provided, add all sizes for this color into inventory
+            Object sizesObj = request.get("sizes");
+            if (sizesObj instanceof List<?>) {
+                @SuppressWarnings("unchecked")
+                List<Map<String, Object>> sizes = (List<Map<String, Object>>) sizesObj;
+                for (Map<String, Object> s : sizes) {
+                    if (s == null) continue;
+                    Object sizeVal = s.get("size");
+                    Object stockVal = s.get("stock");
+                    if (sizeVal == null || stockVal == null) continue;
+                    String size = sizeVal.toString();
+                    int stock;
+                    try {
+                        stock = Integer.parseInt(stockVal.toString());
+                    } catch (NumberFormatException e) {
+                        continue;
+                    }
+                    productRepository.addSizeToColor(
+                        productId,
+                        color,
+                        (colorCode != null && !colorCode.isBlank()) ? colorCode : "#000000",
+                        size,
+                        stock
+                    );
+                }
+            } else {
+                // No sizes array provided; initialize the color with zero-stock default size if needed
+                // Skip creating a placeholder row to avoid confusing inventory; rely on sizes endpoint instead
+            }
             
             return ResponseEntity.ok(Map.of(
                 "success", true,

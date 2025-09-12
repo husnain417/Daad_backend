@@ -35,7 +35,7 @@ public class EmailService {
             "Your password reset OTP is: %s\n\n" +
             "This OTP will expire in 2 minutes.\n\n" +
             "If you didn't request this, please ignore this email.\n\n" +
-            "Best regards,\nYour E-commerce Team",
+            "Best regards,\nYour Daad E-commerce Team",
             user.getUsername(), otp
         );
         
@@ -74,7 +74,7 @@ public class EmailService {
             "Hello %s,\n\n" +
             "Your password has been changed successfully.\n\n" +
             "If you didn't make this change, please contact our support team immediately.\n\n" +
-            "Best regards,\nYour E-commerce Team",
+            "Best regards,\nYour Daad E-commerce Team",
             user.getUsername()
         );
         

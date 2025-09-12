@@ -213,12 +213,14 @@ public class UserController {
                 "Vendor account created successfully. Your account is pending approval." :
                 "Customer account created successfully";
 
-        // Send welcome email
-        try {
-            notificationService.notifyUserRegistration(user);
-        } catch (Exception e) {
-            System.err.println("Failed to send welcome email: " + e.getMessage());
-            // Don't fail registration if email fails
+        // Send welcome email only for customers (not vendors)
+        if (!"vendor".equals(user.getRole())) {
+            try {
+                notificationService.notifyUserRegistration(user);
+            } catch (Exception e) {
+                System.err.println("Failed to send welcome email: " + e.getMessage());
+                // Don't fail registration if email fails
+            }
         }
 
         Map<String, Object> resp = new HashMap<>();
@@ -409,6 +411,55 @@ public class UserController {
         emailService.reSendOtp(u.get());
         userRepository.save(u.get());
         return ResponseEntity.ok(Map.of("message", "New OTP sent to your email", "email", u.get().getEmail()));
+    }
+
+    @PostMapping("/verify-otp")
+    public ResponseEntity<?> verifyOtp(@RequestBody Map<String, String> body) {
+        String email = body.get("email");
+        String otp = body.get("otp");
+        
+        if (email == null || otp == null) {
+            return ResponseEntity.badRequest().body(Map.of("success", false, "message", "Email and OTP are required"));
+        }
+        
+        Optional<User> u = userRepository.findByEmail(email);
+        if (u.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("success", false, "message", "User not found"));
+        }
+        
+        User user = u.get();
+        
+        // Check if OTP exists and is not expired
+        if (user.getOtp() == null || user.getOtpExpires() == null) {
+            return ResponseEntity.badRequest().body(Map.of("success", false, "message", "No OTP found. Please request a new one."));
+        }
+        
+        if (user.getOtpExpires().isBefore(java.time.Instant.now())) {
+            return ResponseEntity.badRequest().body(Map.of("success", false, "message", "OTP has expired. Please request a new one."));
+        }
+        
+        // Verify OTP
+        if (!user.getOtp().equals(otp)) {
+            return ResponseEntity.badRequest().body(Map.of("success", false, "message", "Invalid OTP"));
+        }
+        
+        // Generate reset token
+        Map<String, Object> claims = new HashMap<>();
+        claims.put("id", user.getId());
+        claims.put("email", user.getEmail());
+        String resetToken = jwtService.generateResetToken(claims);
+        
+        // Clear OTP
+        user.setOtp(null);
+        user.setOtpExpires(null);
+        userRepository.save(user);
+        
+        return ResponseEntity.ok(Map.of(
+            "success", true,
+            "message", "OTP verified successfully",
+            "resetToken", resetToken,
+            "expiresIn", "15 minutes"
+        ));
     }
 
     @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")

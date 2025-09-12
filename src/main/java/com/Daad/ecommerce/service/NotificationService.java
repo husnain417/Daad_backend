@@ -91,18 +91,12 @@ public class NotificationService {
     @Async("emailTaskExecutor")
     public void notifyOrderPlaced(Order order) {
         // Notify customer
-        orderEmailService.sendOrderConfirmationNotification(order, order.getCustomerEmail());
-
-        // Notify vendors
-        Set<String> vendorIds = order.getItems().stream()
-            .map(item -> item.getVendorId())
-            .filter(vendorId -> vendorId != null)
-            .collect(Collectors.toSet());
-
-        for (String vendorId : vendorIds) {
-            vendorRepository.findById(vendorId).ifPresent(vendor -> {
-                orderEmailService.sendNewOrderNotification(order, vendor.getUser().getEmail());
-            });
+        String customerEmail = order.getCustomerEmail();
+        if (customerEmail != null && !customerEmail.trim().isEmpty()) {
+            orderEmailService.sendOrderConfirmationNotification(order, customerEmail);
+            System.out.println("Order confirmation email sent to: " + customerEmail);
+        } else {
+            System.err.println("Warning: No customer email found for order " + order.getId());
         }
     }
 

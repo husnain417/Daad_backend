@@ -8,7 +8,6 @@ import org.springframework.stereotype.Repository;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Timestamp;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -118,8 +117,8 @@ public class CategoryRepository {
     }
     
     public void deleteById(String id) {
-        // Soft delete by setting is_active to false
-        String sql = "UPDATE categories SET is_active = false, updated_at = NOW() WHERE id = ?";
+        // Hard delete row
+        String sql = "DELETE FROM categories WHERE id = ?";
         jdbcTemplate.update(sql, UUID.fromString(id));
     }
 

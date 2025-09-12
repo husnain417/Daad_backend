@@ -8,7 +8,9 @@ import java.util.Map;
 import java.util.Objects;
 
 public class Cart {
-	private String userId;
+	private String userId; // For logged-in users
+	private String cartId; // For guest users
+	private boolean isGuest = false; // Flag to differentiate
 	private List<CartItem> items = new ArrayList<>();
 	private double subtotal = 0.0;
 	private double tax = 0.0;
@@ -31,6 +33,11 @@ public class Cart {
 		private double price;
 		private Double discountedPrice; // nullable
 		private double totalPrice;
+		
+		// Product details for display
+		private String productName;
+		private String productDescription;
+		private String defaultImageUrl; // First default image URL
 		public String getProductId() { return productId; }
 		public void setProductId(String productId) { this.productId = productId; }
 		public String getVendorId() { return vendorId; }
@@ -47,6 +54,14 @@ public class Cart {
 		public void setDiscountedPrice(Double discountedPrice) { this.discountedPrice = discountedPrice; }
 		public double getTotalPrice() { return totalPrice; }
 		public void setTotalPrice(double totalPrice) { this.totalPrice = totalPrice; }
+		
+		// Product details getters and setters
+		public String getProductName() { return productName; }
+		public void setProductName(String productName) { this.productName = productName; }
+		public String getProductDescription() { return productDescription; }
+		public void setProductDescription(String productDescription) { this.productDescription = productDescription; }
+		public String getDefaultImageUrl() { return defaultImageUrl; }
+		public void setDefaultImageUrl(String defaultImageUrl) { this.defaultImageUrl = defaultImageUrl; }
 	}
 
 	public static class ShippingAddress {
@@ -93,6 +108,11 @@ public class Cart {
 		public void setMaxDays(int maxDays) { this.maxDays = maxDays; }
 	}
 
+	// Helper method to get the identifier (userId or cartId)
+	public String getIdentifier() {
+		return isGuest ? cartId : userId;
+	}
+
 	public void calculateTotals() {
 		this.subtotal = items.stream().mapToDouble(it -> (it.getDiscountedPrice() != null ? it.getDiscountedPrice() : it.getPrice()) * it.getQuantity()).sum();
 		this.total = subtotal + tax + shipping - discount;
@@ -101,6 +121,11 @@ public class Cart {
 	}
 
 	public void addItem(String productId, String vendorId, String color, String size, int quantity, double priceToUse) {
+		addItem(productId, vendorId, color, size, quantity, priceToUse, null, null, null);
+	}
+	
+	public void addItem(String productId, String vendorId, String color, String size, int quantity, double priceToUse, 
+			String productName, String productDescription, String defaultImageUrl) {
 		CartItem existing = items.stream().filter(i -> i.getProductId().equals(productId)
 				&& Objects.equals(i.getVendorId(), vendorId)
 				&& i.getColor().equals(color) && i.getSize().equals(size)).findFirst().orElse(null);
@@ -117,6 +142,9 @@ public class Cart {
 			it.setQuantity(quantity);
 			it.setPrice(priceToUse);
 			it.setTotalPrice(priceToUse * quantity);
+			it.setProductName(productName);
+			it.setProductDescription(productDescription);
+			it.setDefaultImageUrl(defaultImageUrl);
 			items.add(it);
 		}
 		calculateTotals();
@@ -158,11 +186,29 @@ public class Cart {
 		m.put("discount", discount);
 		m.put("total", total);
 		m.put("estimatedDelivery", estimatedDelivery);
+		m.put("isGuest", isGuest);
+		if (isGuest) {
+			m.put("cartId", cartId);
+		}
 		return m;
 	}
 
+	// Getters and Setters
 	public String getUserId() { return userId; }
-	public void setUserId(String userId) { this.userId = userId; }
+	public void setUserId(String userId) { 
+		this.userId = userId; 
+		this.isGuest = false; // If userId is set, it's not a guest
+	}
+	
+	public String getCartId() { return cartId; }
+	public void setCartId(String cartId) { 
+		this.cartId = cartId; 
+		this.isGuest = true; // If cartId is set, it's a guest
+	}
+	
+	public boolean isGuest() { return isGuest; }
+	public void setGuest(boolean guest) { this.isGuest = guest; }
+	
 	public List<CartItem> getItems() { return items; }
 	public void setItems(List<CartItem> items) { this.items = items; }
 	public double getSubtotal() { return subtotal; }

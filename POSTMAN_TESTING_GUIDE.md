@@ -93,28 +93,85 @@ Content-Type: application/json
 #### Sample Product
 ```json
 {
-  "name": "Test Product",
-  "description": "A test product for API testing",
+  "name": "Premium Cotton T-Shirt",
+  "description": "High-quality cotton t-shirt perfect for everyday wear. Made from 100% organic cotton with a comfortable fit.",
   "price": 29.99,
-  "category": "Electronics",
+  "category": "Clothing",
   "gender": "Unisex",
   "colorInventories": [
     {
       "color": "Red",
+      "colorCode": "#FF0000",
       "sizes": [
         {
+          "size": "S",
+          "stock": 25
+        },
+        {
           "size": "M",
-          "stock": 100
+          "stock": 50
         },
         {
           "size": "L",
-          "stock": 50
+          "stock": 30
+        },
+        {
+          "size": "XL",
+          "stock": 20
+        }
+      ]
+    },
+    {
+      "color": "Blue",
+      "colorCode": "#0000FF",
+      "sizes": [
+        {
+          "size": "S",
+          "stock": 15
+        },
+        {
+          "size": "M",
+          "stock": 40
+        },
+        {
+          "size": "L",
+          "stock": 35
+        },
+        {
+          "size": "XL",
+          "stock": 25
+        }
+      ]
+    },
+    {
+      "color": "Black",
+      "colorCode": "#000000",
+      "sizes": [
+        {
+          "size": "S",
+          "stock": 30
+        },
+        {
+          "size": "M",
+          "stock": 60
+        },
+        {
+          "size": "L",
+          "stock": 45
+        },
+        {
+          "size": "XL",
+          "stock": 35
         }
       ]
     }
   ],
-  "images": ["test-image-url.jpg"],
-  "isActive": true
+  "discount": {
+    "discountValue": 5.00,
+    "discountType": "percentage",
+    "endDate": "2024-12-31",
+    "isActive": true
+  }
 }
 ```
 
@@ -282,6 +339,27 @@ Authorization: Bearer {{customer_token}}
 ```
 
 ### 6. Password Reset Flow
+
+#### 📋 Complete Password Reset Workflow
+
+**Step-by-step process for password reset:**
+
+1. **Request Password Reset** → OTP sent to email (expires in 2 minutes)
+2. **Resend OTP** (optional) → If OTP not received (30-second cooldown)
+3. **Verify OTP** → Validate OTP and get reset token (expires in 15 minutes)
+4. **Set New Password** → Use reset token to set new password
+5. **Alternative: Change Password** → For logged-in users (requires old password)
+
+**Important Notes:**
+- OTP expires in 2 minutes
+- Reset token expires in 15 minutes
+- Rate limiting: 30 seconds between OTP requests
+- Password requirements: 8+ characters, 1 special character, 1 number
+- User is automatically verified after password reset
+
+---
+
+#### 6.1. Request Password Reset
 **POST** `{{base_url}}/api/users/password-forgot`
 
 ```json
@@ -293,8 +371,192 @@ Authorization: Bearer {{customer_token}}
 **Expected Response:**
 ```json
 {
+  "message": "OTP sent to your email",
+  "email": "customer@test.com"
+}
+```
+
+**Test Script:**
+```javascript
+if (pm.response.code === 200) {
+    console.log("OTP sent successfully to: " + pm.response.json().email);
+    console.log("Check your email for the 6-digit OTP");
+}
+```
+
+#### 6.2. Resend OTP (if needed)
+**POST** `{{base_url}}/api/users/resend-otp`
+
+```json
+{
+  "email": "customer@test.com"
+}
+```
+
+**Expected Response:**
+```json
+{
+  "message": "New OTP sent to your email",
+  "email": "customer@test.com"
+}
+```
+
+**Rate Limiting:**
+- 30-second cooldown between requests
+- If rate limited, you'll get:
+```json
+{
+  "message": "Please wait before requesting a new OTP",
+  "retryAfter": 30
+}
+```
+
+#### 6.3. Verify OTP
+**POST** `{{base_url}}/api/users/verify-otp`
+
+```json
+{
+  "email": "customer@test.com",
+  "otp": "123456"
+}
+```
+
+**Expected Response:**
+```json
+{
   "success": true,
-  "message": "OTP sent to your email"
+  "message": "OTP verified successfully",
+  "resetToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "expiresIn": "15 minutes"
+}
+```
+
+**Test Script:**
+```javascript
+if (pm.response.code === 200) {
+    const response = pm.response.json();
+    pm.environment.set("reset_token", response.resetToken);
+    console.log("OTP verified successfully");
+    console.log("Reset token: " + response.resetToken);
+    console.log("Token expires in: " + response.expiresIn);
+}
+```
+
+**Error Responses:**
+- **Invalid OTP**: `{"success": false, "message": "Invalid OTP"}`
+- **Expired OTP**: `{"success": false, "message": "OTP has expired. Please request a new one."}`
+- **No OTP**: `{"success": false, "message": "No OTP found. Please request a new one."}`
+
+#### 6.4. Set New Password (with reset token)
+**POST** `{{base_url}}/api/users/set-new-password`
+
+**Headers:**
+```
+Authorization: Bearer {{reset_token}}
+Content-Type: application/json
+```
+
+```json
+{
+  "newPassword": "NewSecurePass123!"
+}
+```
+
+**Expected Response:**
+```json
+{
+  "message": "Password reset successfully"
+}
+```
+
+**Important Notes:**
+- Reset token is generated after OTP verification
+- Token expires in 15 minutes
+- Password must meet requirements: 8+ chars, 1 special char, 1 number
+- User is automatically verified after password reset
+- OTP is cleared after verification
+
+#### 6.5. Alternative: Change Password (for logged-in users)
+**POST** `{{base_url}}/api/users/password-update`
+
+**Headers:**
+```
+Authorization: Bearer {{customer_token}}
+Content-Type: application/json
+```
+
+```json
+{
+  "oldPassword": "OldPassword123!",
+  "newPassword": "NewPassword123!"
+}
+```
+
+**Expected Response:**
+```json
+{
+  "message": "Password updated successfully"
+}
+```
+
+**Test Script:**
+```javascript
+if (pm.response.code === 200) {
+    console.log("Password updated successfully");
+} else {
+    console.log("Error: " + pm.response.json().message);
+}
+```
+
+#### 6.6. Password Reset Error Scenarios
+
+**Invalid Email:**
+```json
+{
+  "message": "Enter a valid email format"
+}
+```
+
+**User Not Found:**
+```json
+{
+  "message": "User not found"
+}
+```
+
+**Rate Limited (Resend OTP):**
+```json
+{
+  "message": "Please wait before requesting a new OTP",
+  "retryAfter": 30
+}
+```
+
+**Invalid Reset Token:**
+```json
+{
+  "message": "No token provided"
+}
+```
+
+**Weak Password:**
+```json
+{
+  "message": "Password must be at least 8 characters long, include at least one special character, and contain at least one number."
+}
+```
+
+**Same Password (for password update):**
+```json
+{
+  "message": "You entered the same password please change: "
+}
+```
+
+**Invalid Old Password:**
+```json
+{
+  "message": "Invalid old password"
 }
 ```
 
@@ -309,7 +571,134 @@ Authorization: Bearer {{customer_token}}
 
 ---
 
+## 🗂️ Category Management Testing
+
+### 1. Create Parent Category (Admin)
+POST `{{base_url}}/api/categories/`
+
+Headers:
+```
+Authorization: Bearer {{admin_token}}
+Content-Type: application/json
+```
+
+Body:
+```json
+{
+  "name": "Clothing",
+  "description": "All clothing items",
+  "isActive": true
+}
+```
+
+Expected Response:
+```json
+{
+  "success": true,
+  "message": "Category created successfully",
+  "data": {
+    "id": "category-id",
+    "name": "Clothing",
+    "slug": "clothing"
+  }
+}
+```
+
+Test Script:
+```javascript
+if (pm.response.code === 201) {
+  const data = pm.response.json().data;
+  pm.environment.set("parent_category_id", data.id);
+  pm.environment.set("category_slug", data.slug);
+}
+```
+
+### 2. Create Subcategory (Admin)
+POST `{{base_url}}/api/categories/`
+
+Headers:
+```
+Authorization: Bearer {{admin_token}}
+Content-Type: application/json
+```
+
+Body:
+```json
+{
+  "name": "Men",
+  "description": "Men's wear",
+  "parentCategory": "{{parent_category_id}}",
+  "isActive": true
+}
+```
+
+Expected Response sets `data.parentCategoryId` to parent id and returns a slug like `men`.
+
+Test Script:
+```javascript
+if (pm.response.code === 201) {
+  const data = pm.response.json().data;
+  pm.environment.set("subcategory_id", data.id);
+}
+```
+
+### 3. Get All Categories (Public)
+GET `{{base_url}}/api/categories/?page=1&limit=50&sort=name&includeInactive=false&parentOnly=false`
+
+Notes:
+- `parentOnly=true` returns only top-level categories
+- Response includes `stats` with `productCount` per category
+
+### 4. Get Category By ID (Public)
+GET `{{base_url}}/api/categories/{{parent_category_id}}`
+
+Returns category details, subcategories and product count.
+
+### 5. Update Category (Admin)
+PUT `{{base_url}}/api/categories/{{subcategory_id}}`
+
+Headers:
+```
+Authorization: Bearer {{admin_token}}
+Content-Type: application/json
+```
+
+Body (example):
+```json
+{
+  "description": "Updated description for Men",
+  "isActive": true
+}
+```
+
+### 6. Delete Category (Admin)
+DELETE `{{base_url}}/api/categories/{{subcategory_id}}`
+
+Notes:
+- Cannot delete a category that has subcategories or products assigned.
+
+---
+
 ## 🛍️ Product Management Testing
+
+### 📋 Complete Product Creation Workflow
+
+**Step-by-step process for creating a product:**
+
+1. **Create Product** → Product created in "draft" status
+2. **Upload Images** → Product status changes to "awaiting_approval"
+3. **Add Colors** → Add additional color variants
+4. **Update Stock** → Manage inventory levels
+5. **Admin Approval** → Product becomes "approved" and visible to customers
+
+**Important Notes:**
+- Products start in "draft" status
+- Images must be uploaded to change status to "awaiting_approval"
+- Admin approval required for products to be visible to customers
+- Inventory management can be done after product creation
+- Each color can have multiple sizes with individual stock levels
+
+---
 
 ### 1. Get All Products (Public)
 **GET** `{{base_url}}/api/products/`
@@ -387,28 +776,85 @@ Content-Type: application/json
 
 ```json
 {
-  "name": "Test Product",
-  "description": "A test product for API testing",
+  "name": "Premium Cotton T-Shirt",
+  "description": "High-quality cotton t-shirt perfect for everyday wear. Made from 100% organic cotton with a comfortable fit.",
   "price": 29.99,
-  "category": "Electronics",
+  "category": "Clothing",
   "gender": "Unisex",
   "colorInventories": [
     {
       "color": "Red",
+      "colorCode": "#FF0000",
       "sizes": [
         {
+          "size": "S",
+          "stock": 25
+        },
+        {
           "size": "M",
-          "stock": 100
+          "stock": 50
         },
         {
           "size": "L",
-          "stock": 50
+          "stock": 30
+        },
+        {
+          "size": "XL",
+          "stock": 20
+        }
+      ]
+    },
+    {
+      "color": "Blue",
+      "colorCode": "#0000FF",
+      "sizes": [
+        {
+          "size": "S",
+          "stock": 15
+        },
+        {
+          "size": "M",
+          "stock": 40
+        },
+        {
+          "size": "L",
+          "stock": 35
+        },
+        {
+          "size": "XL",
+          "stock": 25
+        }
+      ]
+    },
+    {
+      "color": "Black",
+      "colorCode": "#000000",
+      "sizes": [
+        {
+          "size": "S",
+          "stock": 30
+        },
+        {
+          "size": "M",
+          "stock": 60
+        },
+        {
+          "size": "L",
+          "stock": 45
+        },
+        {
+          "size": "XL",
+          "stock": 35
         }
       ]
     }
   ],
-  "images": ["test-image-url.jpg"],
-  "isActive": true
+  "discount": {
+    "discountValue": 5.00,
+    "discountType": "percentage",
+    "endDate": "2024-12-31",
+    "isActive": true
+  }
 }
 ```
 
@@ -419,8 +865,39 @@ Content-Type: application/json
   "message": "Product created successfully",
   "data": {
     "id": "generated-product-id",
-    "name": "Test Product",
-    "status": "pending"
+    "name": "Premium Cotton T-Shirt",
+    "status": "draft",
+    "totalStock": 425,
+    "colorInventories": [
+      {
+        "color": "Red",
+        "colorCode": "#FF0000",
+        "sizes": [
+          {
+            "size": "S",
+            "stock": 25
+          },
+          {
+            "size": "M",
+            "stock": 50
+          },
+          {
+            "size": "L",
+            "stock": 30
+          },
+          {
+            "size": "XL",
+            "stock": 20
+          }
+        ]
+      }
+    ],
+    "discount": {
+      "discountValue": 5.00,
+      "discountType": "percentage",
+      "endDate": "2024-12-31",
+      "isActive": true
+    }
   }
 }
 ```
@@ -430,11 +907,61 @@ Content-Type: application/json
 if (pm.response.code === 201) {
     const response = pm.response.json();
     pm.environment.set("product_id", response.data.id);
-    console.log("Product created successfully");
+    console.log("Product created successfully with ID: " + response.data.id);
+    console.log("Total stock: " + response.data.totalStock);
 }
 ```
 
-### 5. Update Product (Vendor)
+### 5. Upload Product Default Images
+**POST** `{{base_url}}/api/products/{{product_id}}/images/default`
+
+**Headers:**
+```
+Authorization: Bearer {{vendor_token}}
+```
+
+**Body:** Form-data
+```
+images: [file upload] (multiple files allowed)
+```
+
+**Expected Response:**
+```json
+{
+  "success": true,
+  "message": "Images uploaded successfully. Product status changed to awaiting approval.",
+  "data": {
+    "uploadedUrls": [
+      "http://localhost:8080/uploads/product/product-id/default/image1.jpg",
+      "http://localhost:8080/uploads/product/product-id/default/image2.jpg",
+      "http://localhost:8080/uploads/product/product-id/default/image3.jpg"
+    ],
+    "totalImages": 3
+  }
+}
+```
+
+**Note:** Images are now saved to the `product_images` table in the database and will be available in cart responses and product details.
+
+**Test Script:**
+```javascript
+if (pm.response.code === 200) {
+    const response = pm.response.json();
+    console.log("Images uploaded successfully");
+    console.log("Total images: " + response.data.totalImages);
+    console.log("Image URLs: " + response.data.uploadedUrls.join(", "));
+}
+```
+
+**Important Notes:**
+- Upload multiple image files at once
+- Images are stored in `/uploads/product/{productId}/default/` directory
+- Product status changes from "draft" to "awaiting_approval" after image upload
+- Supported formats: JPG, PNG, GIF, WebP
+- Maximum file size: 5MB per image
+- Recommended: Upload 3-5 high-quality product images
+
+### 6. Update Product (Vendor)
 **PUT** `{{base_url}}/api/products/{{product_id}}`
 
 **Headers:**
@@ -445,23 +972,10 @@ Content-Type: application/json
 
 ```json
 {
-  "name": "Updated Test Product",
-  "description": "Updated description",
-  "price": 39.99
+  "name": "Updated Premium Cotton T-Shirt",
+  "description": "Updated description with more details",
+  "price": 34.99
 }
-```
-
-### 6. Upload Product Images
-**POST** `{{base_url}}/api/products/{{product_id}}/images/default`
-
-**Headers:**
-```
-Authorization: Bearer {{vendor_token}}
-```
-
-**Body:** Form-data
-```
-images: [file upload]
 ```
 
 ### 7. Add Color to Product
@@ -475,17 +989,40 @@ Content-Type: application/json
 
 ```json
 {
-  "color": "Blue",
+  "color": "Green",
+  "colorCode": "#00FF00",
   "sizes": [
     {
       "size": "S",
-      "stock": 25
+      "stock": 20
     },
     {
       "size": "M",
-      "stock": 30
+      "stock": 35
+    },
+    {
+      "size": "L",
+      "stock": 25
+    },
+    {
+      "size": "XL",
+      "stock": 15
     }
   ]
+}
+```
+
+**Expected Response:**
+```json
+{
+  "success": true,
+  "message": "Color added successfully",
+  "data": {
+    "color": "Green",
+    "colorCode": "#00FF00",
+    "totalStock": 95,
+    "sizes": [...]
+  }
 }
 ```
 
@@ -502,7 +1039,22 @@ Content-Type: application/json
 {
   "color": "Red",
   "size": "M",
-  "stock": 150
+  "stock": 75
+}
+```
+
+**Expected Response:**
+```json
+{
+  "success": true,
+  "message": "Stock updated successfully",
+  "data": {
+    "color": "Red",
+    "size": "M",
+    "oldStock": 50,
+    "newStock": 75,
+    "totalStock": 500
+  }
 }
 ```
 
@@ -514,6 +1066,51 @@ Content-Type: application/json
 Authorization: Bearer {{vendor_token}}
 ```
 
+**Expected Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "productId": "product-id",
+    "productName": "Premium Cotton T-Shirt",
+    "totalStock": 500,
+    "colorSummary": [
+      {
+        "color": "Red",
+        "colorCode": "#FF0000",
+        "totalStock": 125,
+        "sizes": [
+          {
+            "size": "S",
+            "stock": 25
+          },
+          {
+            "size": "M",
+            "stock": 75
+          },
+          {
+            "size": "L",
+            "stock": 30
+          },
+          {
+            "size": "XL",
+            "stock": 20
+          }
+        ]
+      }
+    ],
+    "lowStockItems": [
+      {
+        "color": "Blue",
+        "size": "S",
+        "stock": 15,
+        "status": "low"
+      }
+    ]
+  }
+}
+```
+
 ### 10. Delete Product
 **DELETE** `{{base_url}}/api/products/{{product_id}}`
 
@@ -522,9 +1119,147 @@ Authorization: Bearer {{vendor_token}}
 Authorization: Bearer {{vendor_token}}
 ```
 
+**Expected Response:**
+```json
+{
+  "success": true,
+  "message": "Product deleted successfully"
+}
+```
+
 ---
 
 ## 🛒 Shopping Cart Testing
+
+### 🧭 Cart Testing - Definitive Guide (User & Guest)
+
+Use this section if you ever see "Item added successfully" but GET/UPDATE show an empty cart.
+
+**New Feature**: Cart items now include product details (name, description, and default image URL) for better display in the frontend.
+
+#### Identity rules
+- Logged-in users: identified by JWT userId. Do NOT send `cartId`.
+- Guests: identified by a UUID `cartId`. The server returns it after first add; you must reuse it on every subsequent request.
+
+#### Environment variables to add
+- `guest_cart_id` (empty initially)
+- `cart_line_product_id`, `cart_line_color`, `cart_line_size` (captured from add response)
+
+#### Add item (logged-in)
+Headers:
+```
+Authorization: Bearer {{customer_token}}
+Content-Type: application/json
+```
+Body:
+```json
+{
+  "productId": "{{product_id}}",
+  "color": "Red",
+  "size": "M",
+  "quantity": 2
+}
+```
+Test script:
+```javascript
+if (pm.response.code === 200) {
+  const res = pm.response.json();
+  if (res.data && Array.isArray(res.data.items) && res.data.items.length > 0) {
+    const it = res.data.items[0];
+    pm.environment.set("cart_line_product_id", it.productId);
+    pm.environment.set("cart_line_color", it.color);
+    pm.environment.set("cart_line_size", it.size);
+  }
+}
+```
+
+#### Add item (guest)
+Headers:
+```
+Content-Type: application/json
+```
+Body (first add):
+```json
+{
+  "productId": "{{product_id}}",
+  "color": "Red",
+  "size": "M",
+  "quantity": 2
+}
+```
+Test script (captures cartId and line identifiers):
+```javascript
+if (pm.response.code === 200) {
+  const res = pm.response.json();
+  if (res.cartId) pm.environment.set("guest_cart_id", res.cartId);
+  if (res.data && Array.isArray(res.data.items) && res.data.items.length > 0) {
+    const it = res.data.items[0];
+    pm.environment.set("cart_line_product_id", it.productId);
+    pm.environment.set("cart_line_color", it.color);
+    pm.environment.set("cart_line_size", it.size);
+  }
+}
+```
+Body (subsequent adds as guest):
+```json
+{
+  "cartId": "{{guest_cart_id}}",
+  "productId": "{{product_id}}",
+  "color": "Red",
+  "size": "M",
+  "quantity": 1
+}
+```
+
+#### Get cart
+- Logged-in: `GET {{base_url}}/api/cart/` with `Authorization` header.
+- Guest: `GET {{base_url}}/api/cart/?cartId={{guest_cart_id}}`
+
+Note: GET filters out products that are not active or not approved, but does NOT persist those removals.
+
+#### Update item
+- Logged-in headers:
+```
+Authorization: Bearer {{customer_token}}
+Content-Type: application/json
+```
+Body:
+```json
+{
+  "productId": "{{cart_line_product_id}}",
+  "color": "{{cart_line_color}}",
+  "size": "{{cart_line_size}}",
+  "quantity": 3
+}
+```
+- Guest body:
+```json
+{
+  "cartId": "{{guest_cart_id}}",
+  "productId": "{{cart_line_product_id}}",
+  "color": "{{cart_line_color}}",
+  "size": "{{cart_line_size}}",
+  "quantity": 3
+}
+```
+
+#### Troubleshooting: Empty cart on GET/UPDATE after successful add
+- Ensure you are reusing the correct identifiers:
+  - Logged-in: do not send `cartId`.
+  - Guest: always send `cartId: {{guest_cart_id}}` on GET/UPDATE/REMOVE.
+- Ensure you use the exact line identifiers from the add response:
+  - `productId = {{cart_line_product_id}}`, `color = {{cart_line_color}}`, `size = {{cart_line_size}}`.
+- Verify product availability:
+  - GET filters inactive/unapproved products. Check `GET /api/products/{{cart_line_product_id}}` → `isActive=true` and `status=approved`.
+- Database quick checks (optional, if you can peek):
+  - A row exists in `carts` for your identifier (userId for JWT, `cartId` for guest).
+  - Rows exist in `cart_items` for that cart’s `id`.
+- Schema alignment (must-have for guests):
+  - `carts` should have `cart_id UUID UNIQUE` and `is_guest BOOLEAN`.
+- Retest sequence:
+  1) Add → capture `cartId` (guest) and line identifiers.
+  2) GET with proper identity (JWT or `cartId`).
+  3) UPDATE with the captured identifiers (and `cartId` for guest).
 
 ### 1. Get Cart
 **GET** `{{base_url}}/api/cart/`
@@ -534,7 +1269,7 @@ Authorization: Bearer {{vendor_token}}
 Authorization: Bearer {{customer_token}}
 ```
 
-**Expected Response:**
+**Expected Response (Empty Cart):**
 ```json
 {
   "success": true,
@@ -557,21 +1292,106 @@ Authorization: Bearer {{customer_token}}
 }
 ```
 
+**Expected Response (With Items):**
+```json
+{
+  "success": true,
+  "data": {
+    "items": [
+      {
+        "productId": "product-id",
+        "vendorId": "vendor-id",
+        "color": "Red",
+        "size": "M",
+        "quantity": 2,
+        "price": 29.99,
+        "discountedPrice": null,
+        "totalPrice": 59.98,
+        "productName": "Premium Cotton T-Shirt",
+        "productDescription": "High-quality cotton t-shirt perfect for everyday wear.",
+        "defaultImageUrl": "https://example.com/images/tshirt-red.jpg"
+      }
+    ],
+    "subtotal": 59.98,
+    "tax": 0,
+    "shipping": 0,
+    "total": 59.98
+  },
+  "summary": {
+    "itemCount": 1,
+    "totalItems": 2,
+    "subtotal": 59.98,
+    "tax": 0,
+    "shipping": 0,
+    "discount": 0,
+    "total": 59.98
+  }
+}
+```
+
 ### 2. Add Item to Cart
 **POST** `{{base_url}}/api/cart/add`
 
-**Headers:**
+Use ONE of the following:
+- Logged-in flow: send JWT header; DO NOT send `cartId`.
+- Guest flow: omit JWT; include `cartId` if you already have one, otherwise the response will return a `cartId` to reuse.
+
+**Headers (logged-in):**
 ```
 Authorization: Bearer {{customer_token}}
 Content-Type: application/json
 ```
 
+**Body (logged-in):**
 ```json
 {
   "productId": "{{product_id}}",
   "color": "Red",
   "size": "M",
   "quantity": 2
+}
+```
+
+**Headers (guest):**
+```
+Content-Type: application/json
+```
+
+**Body (guest, first add):**
+```json
+{
+  "productId": "{{product_id}}",
+  "color": "Red",
+  "size": "M",
+  "quantity": 2
+}
+```
+
+**Body (guest, subsequent adds):**
+```json
+{
+  "cartId": "{{guest_cart_id}}",
+  "productId": "{{product_id}}",
+  "color": "Red",
+  "size": "M",
+  "quantity": 2
+}
+```
+
+**Test Script (logged-in and guest):**
+```javascript
+if (pm.response.code === 200) {
+  const res = pm.response.json();
+  // Capture the exact productId used in the line item for future updates
+  if (res.data && Array.isArray(res.data.items) && res.data.items.length > 0) {
+    pm.environment.set("cart_line_product_id", res.data.items[0].productId);
+    pm.environment.set("cart_line_color", res.data.items[0].color);
+    pm.environment.set("cart_line_size", res.data.items[0].size);
+  }
+  // For guests, keep the cartId
+  if (res.cartId) {
+    pm.environment.set("guest_cart_id", res.cartId);
+  }
 }
 ```
 
@@ -588,7 +1408,12 @@ Content-Type: application/json
         "color": "Red",
         "size": "M",
         "quantity": 2,
-        "price": 29.99
+        "price": 29.99,
+        "discountedPrice": null,
+        "totalPrice": 59.98,
+        "productName": "Premium Cotton T-Shirt",
+        "productDescription": "High-quality cotton t-shirt perfect for everyday wear.",
+        "defaultImageUrl": "https://example.com/images/tshirt-red.jpg"
       }
     ],
     "subtotal": 59.98
@@ -604,20 +1429,46 @@ Content-Type: application/json
 ### 3. Update Cart Item
 **PUT** `{{base_url}}/api/cart/update`
 
-**Headers:**
+Important:
+- You MUST use the exact `productId`, `color`, and `size` of the line you want to update (as returned by Add Item response).
+- Logged-in: DO NOT send `cartId`.
+- Guest: include `cartId` returned from the first add.
+
+**Headers (logged-in):**
 ```
 Authorization: Bearer {{customer_token}}
 Content-Type: application/json
 ```
 
+**Body (logged-in):**
 ```json
 {
-  "productId": "{{product_id}}",
-  "color": "Red",
-  "size": "M",
+  "productId": "{{cart_line_product_id}}",
+  "color": "{{cart_line_color}}",
+  "size": "{{cart_line_size}}",
   "quantity": 3
 }
 ```
+
+**Headers (guest):**
+```
+Content-Type: application/json
+```
+
+**Body (guest):**
+```json
+{
+  "cartId": "{{guest_cart_id}}",
+  "productId": "{{cart_line_product_id}}",
+  "color": "{{cart_line_color}}",
+  "size": "{{cart_line_size}}",
+  "quantity": 3
+}
+```
+
+**Notes:**
+- If the item disappears after update, ensure the product is still active and approved (GET filters inactive/unapproved products).
+- `cartId` is only for guests. Logged-in users are identified by JWT.
 
 ### 4. Remove Item from Cart
 **DELETE** `{{base_url}}/api/cart/remove`
@@ -712,7 +1563,12 @@ Authorization: Bearer {{customer_token}}
 
 ## 📦 Order Management Testing
 
-### 1. Create Order (Authenticated)
+### Order Creation Overview
+The system supports both authenticated and guest order creation:
+- **Authenticated Users**: Use `/api/orders/create` with JWT token
+- **Guest Users**: Use `/api/orders/create-guest` without authentication
+
+### 1. Create Order (Authenticated User)
 **POST** `{{base_url}}/api/orders/create`
 
 **Headers:**
@@ -721,11 +1577,16 @@ Authorization: Bearer {{customer_token}}
 Content-Type: application/json
 ```
 
+**Note:** Requires valid JWT token for authentication.
+
+**Important:** 
+- `customerInfo.email` is used for order notifications
+- `shippingAddress` contains all shipping details including phone and email
+
 ```json
 {
   "customerInfo": {
-    "email": "customer@test.com",
-    "phone": "+1234567890"
+    "email": "customer@test.com"
   },
   "items": [
     {
@@ -743,8 +1604,7 @@ Content-Type: application/json
     "state": "Sindh",
     "postalCode": "75000",
     "country": "Pakistan",
-    "phoneNumber": "+1234567890",
-    "email": "customer@test.com"
+    "phoneNumber": "+1234567890"
   },
   "subtotal": 59.98,
   "shippingCharges": 200.0,
@@ -791,11 +1651,16 @@ if (pm.response.code === 201) {
 Content-Type: application/json
 ```
 
+**Note:** No authentication required - this endpoint is publicly accessible for guest users.
+
+**Important:** 
+- `customerInfo.email` is used for order notifications
+- `shippingAddress` contains all shipping details including phone and email
+
 ```json
 {
   "customerInfo": {
-    "email": "guest@test.com",
-    "phone": "+1234567890"
+    "email": "guest@test.com"
   },
   "items": [
     {
@@ -813,8 +1678,7 @@ Content-Type: application/json
     "state": "Punjab",
     "postalCode": "54000",
     "country": "Pakistan",
-    "phoneNumber": "+1234567890",
-    "email": "guest@test.com"
+    "phoneNumber": "+1234567890"
   },
   "subtotal": 29.99,
   "shippingCharges": 200.0,
@@ -1294,10 +2158,11 @@ Content-Type: application/json
 4. Set up admin user (if available)
 
 ### Phase 2: Product Management
-1. Create products as vendor
-2. Test product CRUD operations
-3. Test inventory management
-4. Test product approval flow
+1. Create product with inventory (colors, sizes, stock)
+2. Upload product default images
+3. Test product CRUD operations
+4. Test inventory management (add colors, update stock)
+5. Test product approval flow
 
 ### Phase 3: Shopping Experience
 1. Browse products
