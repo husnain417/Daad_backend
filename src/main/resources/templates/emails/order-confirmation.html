@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Order Confirmation</title>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: #2c3e50; color: white; padding: 20px; text-align: center; }
+        .content { padding: 20px; background: #f9f9f9; }
+        .order-details { background: white; padding: 20px; margin: 20px 0; border-radius: 5px; }
+        .item { border-bottom: 1px solid #eee; padding: 10px 0; }
+        .item:last-child { border-bottom: none; }
+        .total { background: #f8f9fa; padding: 15px; margin: 10px 0; border-radius: 5px; font-weight: bold; }
+        .address { background: #e8f4fd; padding: 15px; margin: 10px 0; border-radius: 5px; }
+        .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Order Confirmation</h1>
+            <p>Order #<span th:text="${orderId}">12345</span></p>
+        </div>
+        <div class="content">
+            <p>Hello,</p>
+            
+            <p>Thank you for your order! We have received your order and it is being processed.</p>
+            
+            <div class="order-details">
+                <h3>Order Details</h3>
+                <p><strong>Order ID:</strong> <span th:text="${orderId}">12345</span></p>
+                <p><strong>Order Date:</strong> <span th:text="${#temporals.format(orderDate, 'dd MMM yyyy HH:mm')}">Date</span></p>
+                <p><strong>Payment Method:</strong> <span th:text="${paymentMethod}">Payment Method</span></p>
+                
+                <h4>Items Ordered:</h4>
+                <div th:each="item : ${items}" class="item">
+                    <div style="display: flex; justify-content: space-between;">
+                        <div>
+                            <strong th:text="${item.productName}">Product Name</strong><br>
+                            <small>Color: <span th:text="${item.color}">Color</span> | Size: <span th:text="${item.size}">Size</span> | Qty: <span th:text="${item.quantity}">1</span></small>
+                        </div>
+                        <div th:text="${'$' + #numbers.formatDecimal(item.price * item.quantity, 1, 2)}">$0.00</div>
+                    </div>
+                </div>
+                
+                <div class="total">
+                    <div style="display: flex; justify-content: space-between;">
+                        <span>Total Amount:</span>
+                        <span th:text="${'$' + #numbers.formatDecimal(totalAmount, 1, 2)}">$0.00</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="address" th:if="${shippingAddress}">
+                <h4>Shipping Address:</h4>
+                <p th:text="${shippingAddress.fullName}">Full Name</p>
+                <p th:text="${shippingAddress.addressLine1}">Address Line 1</p>
+                <p th:text="${shippingAddress.addressLine2}">Address Line 2</p>
+                <p th:text="${shippingAddress.city + ', ' + shippingAddress.state + ' ' + shippingAddress.postalCode}">City, State ZIP</p>
+                <p th:text="${shippingAddress.country}">Country</p>
+            </div>
+            
+            <p>We will send you another email when your order ships. You can track your order status anytime in your account.</p>
+            
+            <p>Thank you for choosing Daad!</p>
+        </div>
+        <div class="footer">
+            <p>This is an automated notification from Daad E-commerce Platform</p>
+        </div>
+    </div>
+</body>
+</html>

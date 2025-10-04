@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>New Order Received</title>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: #27ae60; color: white; padding: 20px; text-align: center; }
+        .content { padding: 20px; background: #f9f9f9; }
+        .order-details { background: white; padding: 20px; margin: 20px 0; border-radius: 5px; }
+        .item { border-bottom: 1px solid #eee; padding: 10px 0; }
+        .item:last-child { border-bottom: none; }
+        .total { background: #f8f9fa; padding: 15px; margin: 10px 0; border-radius: 5px; font-weight: bold; }
+        .customer-info { background: #e8f4fd; padding: 15px; margin: 10px 0; border-radius: 5px; }
+        .action-button { background: #3498db; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block; margin: 10px 0; }
+        .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
+        .urgent { background: #fff3cd; border: 1px solid #ffeaa7; padding: 10px; border-radius: 5px; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎉 New Order Received!</h1>
+            <p>Order #<span th:text="${orderId}">12345</span></p>
+        </div>
+        <div class="content">
+            <p>Hello Vendor,</p>
+            
+            <p><strong>Great news!</strong> You have received a new order for your products. Please review the details below and prepare the items for shipment.</p>
+            
+            <div class="urgent">
+                <strong>⏰ Action Required:</strong> Please process this order within 24 hours to maintain excellent customer service.
+            </div>
+            
+            <div class="order-details">
+                <h3>📦 Order Details</h3>
+                <p><strong>Order ID:</strong> <span th:text="${orderId}">12345</span></p>
+                <p><strong>Order Date:</strong> <span th:text="${#temporals.format(orderDate, 'dd MMM yyyy HH:mm')}">Date</span></p>
+                <p><strong>Customer Email:</strong> <span th:text="${customerEmail}">customer@example.com</span></p>
+                
+                <h4>🛍️ Items Ordered:</h4>
+                <div th:each="item : ${items}" class="item">
+                    <div style="display: flex; justify-content: space-between;">
+                        <div>
+                            <strong th:text="${item.productName}">Product Name</strong><br>
+                            <small>Color: <span th:text="${item.color}">Color</span> | Size: <span th:text="${item.size}">Size</span> | Qty: <span th:text="${item.quantity}">1</span></small>
+                        </div>
+                        <div th:text="${'$' + #numbers.formatDecimal(item.price * item.quantity, 1, 2)}">$0.00</div>
+                    </div>
+                </div>
+                
+                <div class="total">
+                    <div style="display: flex; justify-content: space-between;">
+                        <span>Total Amount:</span>
+                        <span th:text="${'$' + #numbers.formatDecimal(totalAmount, 1, 2)}">$0.00</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="customer-info">
+                <h4>👤 Customer Information:</h4>
+                <p><strong>Email:</strong> <span th:text="${customerEmail}">customer@example.com</span></p>
+                <p><em>Note: Customer shipping address will be provided when you update the order status to "shipped".</em></p>
+            </div>
+            
+            
+            <div style="background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;">
+                <h4>📋 Next Steps:</h4>
+                <ol>
+                    <li>Review the order details and confirm availability</li>
+                    <li>Prepare the items for packaging</li>
+                    <li>Update order status to "processing" when ready</li>
+                    <li>Update order status to "shipped" with tracking number when dispatched</li>
+                </ol>
+            </div>
+            
+            <p>If you have any questions about this order, please contact our support team or respond to this email.</p>
+            
+            <p>Thank you for being part of the Daad marketplace!</p>
+        </div>
+        <div class="footer">
+            <p>This is an automated notification from Daad E-commerce Platform</p>
+            <p>Vendor Dashboard: <a href="https://vendor.daad.com">https://vendor.daad.com</a></p>
+        </div>
+    </div>
+</body>
+</html>

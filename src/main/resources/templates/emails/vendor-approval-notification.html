@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vendor Account Update</title>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: #27ae60; color: white; padding: 20px; text-align: center; }
+        .header.rejected { background: #e74c3c; }
+        .content { padding: 20px; background: #f9f9f9; }
+        .info-box { background: white; padding: 15px; margin: 10px 0; border-left: 4px solid #27ae60; }
+        .info-box.rejected { border-left-color: #e74c3c; }
+        .button { display: inline-block; background: #3498db; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; }
+        .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header" th:classappend="${!isApproved} ? 'rejected' : ''">
+            <h1 th:text="${isApproved ? 'Congratulations! Account Approved' : 'Application Update'}">Account Update</h1>
+        </div>
+        <div class="content">
+            <p>Hello <span th:text="${vendorName}">Vendor</span>,</p>
+            
+            <div th:if="${isApproved}">
+                <p>Great news! Your vendor account has been <strong>APPROVED</strong> and you can now start selling on Daad!</p>
+                
+                <div class="info-box">
+                    <h3>Your Account is Ready!</h3>
+                    <p><strong>Business Name:</strong> <span th:text="${vendorName}">Business Name</span></p>
+                    <p><strong>Approval Date:</strong> <span th:text="${#temporals.format(approvalDate, 'dd MMM yyyy HH:mm')}">Date</span></p>
+                </div>
+                
+                <h3>What you can do now:</h3>
+                <ul>
+                    <li>Log in to your vendor dashboard</li>
+                    <li>Add your products and start selling</li>
+                    <li>Manage your inventory and orders</li>
+                    <li>Track your sales and analytics</li>
+                </ul>
+                
+                <p style="text-align: center; margin: 30px 0;">
+                    <a href="https://vendor.daad.com/dashboard" class="button">Access Dashboard</a>
+                </p>
+            </div>
+            
+            <div th:if="${!isApproved}">
+                <p>We regret to inform you that your vendor application has been <strong>REJECTED</strong>.</p>
+                
+                <div class="info-box rejected">
+                    <h3>Rejection Details</h3>
+                    <p><strong>Reason:</strong> <span th:text="${reason}">Reason not provided</span></p>
+                    <p><strong>Date:</strong> <span th:text="${#temporals.format(approvalDate, 'dd MMM yyyy HH:mm')}">Date</span></p>
+                </div>
+                
+                <p>You may reapply after addressing the issues mentioned above. If you have any questions, please contact our support team.</p>
+            </div>
+            
+            <p>Best regards,<br>The Daad Team</p>
+        </div>
+        <div class="footer">
+            <p>This is an automated notification from Daad E-commerce Platform</p>
+        </div>
+    </div>
+</body>
+</html>
