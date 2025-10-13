@@ -72,4 +72,128 @@ public class AdminDashboardController {
         int rows = adminRepository.setGlobalCommissionRate(rate);
         return ResponseEntity.ok(Map.of("success", true, "updatedRows", rows, "commissionRate", rate));
     }
+
+    // Get all vendors with commission info for admin commission management
+    @GetMapping("/vendors/commission")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<Map<String, Object>> getVendorsWithCommission() {
+        try {
+            System.out.println("Getting vendors with commission info...");
+            List<Map<String, Object>> vendors = adminRepository.getVendorsWithCommissionInfo();
+            System.out.println("Found " + vendors.size() + " vendors");
+            return ResponseEntity.ok(Map.of("success", true, "count", vendors.size(), "data", vendors));
+        } catch (Exception e) {
+            System.err.println("Error in getVendorsWithCommission: " + e.getMessage());
+            e.printStackTrace();
+            return ResponseEntity.status(500).body(Map.of("success", false, "message", "Failed to fetch vendors", "error", e.getMessage()));
+        }
+    }
+
+    // Update individual vendor commission rate
+    @PutMapping("/vendors/{vendorId}/commission")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<Map<String, Object>> updateVendorCommission(
+            @PathVariable String vendorId, 
+            @RequestBody Map<String, Object> body) {
+        try {
+            Object val = body.get("commissionRate");
+            if (val == null) {
+                return ResponseEntity.badRequest().body(Map.of("success", false, "message", "commissionRate is required"));
+            }
+            
+            double rate;
+            try { 
+                rate = Double.parseDouble(val.toString()); 
+            } catch (Exception e) { 
+                return ResponseEntity.badRequest().body(Map.of("success", false, "message", "commissionRate must be a number")); 
+            }
+            
+            if (rate < 0 || rate > 100) {
+                return ResponseEntity.badRequest().body(Map.of("success", false, "message", "commissionRate must be between 0 and 100"));
+            }
+            
+            int rows = adminRepository.updateVendorCommission(vendorId, rate);
+            if (rows > 0) {
+                return ResponseEntity.ok(Map.of("success", true, "message", "Commission rate updated successfully", "vendorId", vendorId, "commissionRate", rate));
+            } else {
+                return ResponseEntity.status(404).body(Map.of("success", false, "message", "Vendor not found"));
+            }
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of("success", false, "message", "Failed to update commission rate", "error", e.getMessage()));
+        }
+    }
+
+    // Filtered Orders API for Admin Dashboard
+    @GetMapping("/orders/filtered")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<Map<String, Object>> getFilteredOrders(
+            @RequestParam(required = false) String productName,
+            @RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String endDate,
+            @RequestParam(required = false) String orderStatus,
+            @RequestParam(required = false) String vendorName,
+            @RequestParam(defaultValue = "1") Integer page,
+            @RequestParam(defaultValue = "20") Integer limit) {
+        try {
+            List<Map<String, Object>> orders = adminRepository.findOrdersWithFilters(
+                productName, startDate, endDate, orderStatus, vendorName, page, limit);
+            
+            int total = adminRepository.countOrdersWithFilters(
+                productName, startDate, endDate, orderStatus, vendorName);
+            
+            return ResponseEntity.ok(Map.of(
+                "success", true,
+                "count", orders.size(),
+                "total", total,
+                "pagination", Map.of(
+                    "page", page,
+                    "pages", (int) Math.ceil((double) total / limit)
+                ),
+                "data", orders
+            ));
+            
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of(
+                "success", false,
+                "message", "Error fetching filtered orders: " + e.getMessage()
+            ));
+        }
+    }
+
+    // Filtered Products API for Admin Dashboard
+    @GetMapping("/products/filtered")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<Map<String, Object>> getFilteredProducts(
+            @RequestParam(required = false) String productName,
+            @RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String endDate,
+            @RequestParam(required = false) String productStatus,
+            @RequestParam(required = false) String vendorName,
+            @RequestParam(defaultValue = "1") Integer page,
+            @RequestParam(defaultValue = "20") Integer limit) {
+        try {
+            List<Map<String, Object>> products = adminRepository.findProductsWithFilters(
+                productName, startDate, endDate, productStatus, vendorName, page, limit);
+            
+            int total = adminRepository.countProductsWithFilters(
+                productName, startDate, endDate, productStatus, vendorName);
+            
+            return ResponseEntity.ok(Map.of(
+                "success", true,
+                "count", products.size(),
+                "total", total,
+                "pagination", Map.of(
+                    "page", page,
+                    "pages", (int) Math.ceil((double) total / limit)
+                ),
+                "data", products
+            ));
+            
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of(
+                "success", false,
+                "message", "Error fetching filtered products: " + e.getMessage()
+            ));
+        }
+    }
 }

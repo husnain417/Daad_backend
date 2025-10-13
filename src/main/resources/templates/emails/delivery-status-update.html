@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Order Delivery Status Update</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            background-color: #f8f9fa;
+            padding: 20px;
+            text-align: center;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .content {
+            background-color: #ffffff;
+            padding: 20px;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+        }
+        .status-info {
+            background-color: #e8f5e8;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+            border-left: 4px solid #28a745;
+        }
+        .status-failed {
+            background-color: #f8d7da;
+            border-left-color: #dc3545;
+        }
+        .status-processing {
+            background-color: #fff3cd;
+            border-left-color: #ffc107;
+        }
+        .status-delivered {
+            background-color: #d4edda;
+            border-left-color: #28a745;
+        }
+        .footer {
+            text-align: center;
+            margin-top: 30px;
+            padding: 20px;
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            font-size: 14px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1 th:if="${status == 'successful' and subStatus == 'delivered to customer'}">🎉 Order Delivered Successfully!</h1>
+        <h1 th:if="${status == 'processing' and subStatus == 'out for delivery'}">🚚 Your Order is Out for Delivery!</h1>
+        <h1 th:if="${status == 'processing' and subStatus == 'picked up'}">📦 Your Order Has Been Picked Up!</h1>
+        <h1 th:if="${status == 'processing' and subStatus == 'at courier hub'}">🏢 Your Order is at Courier Hub</h1>
+        <h1 th:if="${status == 'unsuccessful'}">⚠️ Delivery Attempt Failed</h1>
+        <h1 th:if="${status != 'successful' and status != 'processing' and status != 'unsuccessful'}">📋 Order Status Update</h1>
+        <p>Order #[[${orderId}]]</p>
+    </div>
+
+    <div class="content">
+        <p>Hello,</p>
+        
+        <div th:class="${status == 'successful' ? 'status-info status-delivered' : 
+                        status == 'unsuccessful' ? 'status-info status-failed' : 
+                        'status-info status-processing'}">
+            <h3 th:if="${status == 'successful' and subStatus == 'delivered to customer'}">✅ Delivered Successfully</h3>
+            <h3 th:if="${status == 'processing' and subStatus == 'out for delivery'}">🚚 Out for Delivery</h3>
+            <h3 th:if="${status == 'processing' and subStatus == 'picked up'}">📦 Picked Up</h3>
+            <h3 th:if="${status == 'processing' and subStatus == 'at courier hub'}">🏢 At Courier Hub</h3>
+            <h3 th:if="${status == 'unsuccessful'}">❌ Delivery Failed</h3>
+            <h3 th:if="${status != 'successful' and status != 'processing' and status != 'unsuccessful'}">📋 Status Update</h3>
+            
+            <p><strong>Current Status:</strong> [[${status}]]</p>
+            <p th:if="${subStatus != null}"><strong>Sub Status:</strong> [[${subStatus}]]</p>
+            <p><strong>Fincart Order ID:</strong> [[${fincartOrderId}]]</p>
+        </div>
+
+        <div th:if="${status == 'successful' and subStatus == 'delivered to customer'}">
+            <h3>🎉 Congratulations!</h3>
+            <p>Your order has been successfully delivered! We hope you love your purchase.</p>
+            <ul>
+                <li>Please check that all items are correct and in good condition</li>
+                <li>If you're satisfied, no further action is needed</li>
+                <li>If you have any issues, please contact us within 24 hours</li>
+            </ul>
+        </div>
+
+        <div th:if="${status == 'processing' and subStatus == 'out for delivery'}">
+            <h3>🚚 Almost There!</h3>
+            <p>Your order is now out for delivery and should arrive soon!</p>
+            <ul>
+                <li>Make sure someone is available to receive the package</li>
+                <li>The delivery team will contact you when they arrive</li>
+                <li>Please have a valid ID ready for verification</li>
+            </ul>
+        </div>
+
+        <div th:if="${status == 'processing' and subStatus == 'picked up'}">
+            <h3>📦 On the Move!</h3>
+            <p>Your order has been picked up and is now in transit.</p>
+            <ul>
+                <li>Your package is being transported to the nearest delivery hub</li>
+                <li>You'll receive another update when it's out for delivery</li>
+                <li>Expected delivery: 1-2 business days</li>
+            </ul>
+        </div>
+
+        <div th:if="${status == 'processing' and subStatus == 'at courier hub'}">
+            <h3>🏢 Processing at Hub</h3>
+            <p>Your order has arrived at the courier hub and is being prepared for final delivery.</p>
+            <ul>
+                <li>Your package is being sorted and prepared for delivery</li>
+                <li>It will be assigned to a delivery driver soon</li>
+                <li>You'll receive an update when it's out for delivery</li>
+            </ul>
+        </div>
+
+        <div th:if="${status == 'unsuccessful'}">
+            <h3>⚠️ Delivery Attempt Failed</h3>
+            <p>We're sorry, but the delivery attempt was unsuccessful.</p>
+            <ul>
+                <li>This could be due to no one being available to receive the package</li>
+                <li>Incorrect address information</li>
+                <li>Package refused by recipient</li>
+                <li>Other delivery issues</li>
+            </ul>
+            <p><strong>What happens next?</strong></p>
+            <ul>
+                <li>Our delivery partner will attempt to contact you</li>
+                <li>You may be able to reschedule the delivery</li>
+                <li>If multiple attempts fail, the package may be returned</li>
+            </ul>
+        </div>
+
+        <div th:if="${status != 'successful' and status != 'processing' and status != 'unsuccessful'}">
+            <h3>📋 Status Update</h3>
+            <p>Your order status has been updated to: <strong>[[${status}]]</strong></p>
+            <p th:if="${subStatus != null}">Sub status: <strong>[[${subStatus}]]</strong></p>
+        </div>
+
+        <p>If you have any questions about your delivery, please contact our customer support team.</p>
+
+        <p>Thank you for your patience!</p>
+    </div>
+
+    <div class="footer">
+        <p>This is an automated message. Please do not reply to this email.</p>
+        <p>For support, contact us at support@yourcompany.com or call +1-800-123-4567</p>
+    </div>
+</body>
+</html>

@@ -2,12 +2,16 @@ package com.Daad.ecommerce.controller;
 
 import com.Daad.ecommerce.dto.PaymentDtos.CreatePaymentSessionRequest;
 import com.Daad.ecommerce.dto.PaymentDtos.PaymobWebhookEvent;
+import com.Daad.ecommerce.dto.PaymentDtos.RefundRequest;
+import com.Daad.ecommerce.dto.PaymentDtos.RefundResponse;
+import com.Daad.ecommerce.dto.PaymentDtos.VoidResponse;
 import com.Daad.ecommerce.repository.OrderRepository;
 import com.Daad.ecommerce.service.PaymentService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
+import java.util.HashMap;
 
 @RestController
 @RequestMapping("/api/payments")
@@ -104,12 +108,12 @@ public class PaymentController {
             return ResponseEntity.status(404).body(Map.of("success", false, "message", "Order not found"));
         }
         var order = orderOpt.get();
-        return ResponseEntity.ok(Map.of("success", true, "data", Map.of(
-                "paymentStatus", order.getPaymentStatus(),
-                "paymentMethod", order.getPaymentMethod(),
-                "transactionId", order.getTransactionId(),
-                "paymentReference", order.getPaymentReference()
-        )));
+        Map<String, Object> data = new HashMap<>();
+        data.put("paymentStatus", order.getPaymentStatus());
+        data.put("paymentMethod", order.getPaymentMethod());
+        data.put("transactionId", order.getTransactionId());
+        data.put("paymentReference", order.getPaymentReference());
+        return ResponseEntity.ok(Map.of("success", true, "data", data));
     }
 
     private String toJson(Object o) {
@@ -117,6 +121,78 @@ public class PaymentController {
             return new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(o);
         } catch (Exception e) {
             return "{}";
+        }
+    }
+
+    @PostMapping("/refund/{orderId}")
+    public ResponseEntity<Map<String, Object>> refund(@PathVariable String orderId, @RequestBody(required = false) RefundRequest req) {
+        try {
+            var orderOpt = orderRepository.findById(orderId);
+            if (orderOpt.isEmpty()) {
+                return ResponseEntity.status(404).body(Map.of("success", false, "message", "Order not found"));
+            }
+            var order = orderOpt.get();
+            if (order.getTransactionId() == null || order.getTransactionId().isBlank()) {
+                return ResponseEntity.status(400).body(Map.of("success", false, "message", "No transaction found for order"));
+            }
+            
+            // Check if order is already refunded
+            if ("refunded".equalsIgnoreCase(order.getPaymentStatus()) || "voided".equalsIgnoreCase(order.getPaymentStatus())) {
+                return ResponseEntity.status(400).body(Map.of("success", false, "message", "Order already refunded/voided"));
+            }
+            
+            String transactionId = order.getTransactionId();
+            Double amountCents = req != null && req.getAmountCents() != null ? req.getAmountCents() : null;
+            String reason = req != null ? req.getReason() : null;
+            
+            RefundResponse result = paymentService.refundTransaction(transactionId, orderId, amountCents, reason);
+            return ResponseEntity.ok(Map.of("success", result.isSuccess(), "data", result));
+        } catch (Exception e) {
+            System.err.println("Refund endpoint error: " + e.getMessage());
+            return ResponseEntity.status(500).body(Map.of("success", false, "message", "Internal server error: " + e.getMessage()));
+        }
+    }
+
+    @PostMapping("/void/{orderId}")
+    public ResponseEntity<Map<String, Object>> voidPayment(@PathVariable String orderId, @RequestBody(required = false) Map<String, Object> body) {
+        try {
+            var orderOpt = orderRepository.findById(orderId);
+            if (orderOpt.isEmpty()) {
+                return ResponseEntity.status(404).body(Map.of("success", false, "message", "Order not found"));
+            }
+            var order = orderOpt.get();
+            if (order.getTransactionId() == null || order.getTransactionId().isBlank()) {
+                return ResponseEntity.status(400).body(Map.of("success", false, "message", "No transaction found for order"));
+            }
+            
+            // Check if order is already refunded/voided
+            if ("refunded".equalsIgnoreCase(order.getPaymentStatus()) || "voided".equalsIgnoreCase(order.getPaymentStatus())) {
+                return ResponseEntity.status(400).body(Map.of("success", false, "message", "Order already refunded/voided"));
+            }
+            
+            String transactionId = order.getTransactionId();
+            String reason = body != null && body.get("reason") != null ? body.get("reason").toString() : null;
+            
+            VoidResponse result = paymentService.voidTransaction(transactionId, orderId, reason);
+            return ResponseEntity.ok(Map.of("success", result.isSuccess(), "data", result));
+        } catch (Exception e) {
+            System.err.println("Void endpoint error: " + e.getMessage());
+            return ResponseEntity.status(500).body(Map.of("success", false, "message", "Internal server error: " + e.getMessage()));
+        }
+    }
+
+    @GetMapping("/refund-status/{orderId}")
+    public ResponseEntity<Map<String, Object>> refundStatus(@PathVariable String orderId) {
+        try {
+            var orderOpt = orderRepository.findById(orderId);
+            if (orderOpt.isEmpty()) {
+                return ResponseEntity.status(404).body(Map.of("success", false, "message", "Order not found"));
+            }
+            var latest = paymentService.paymentsGetLatestRefundForOrder(orderId);
+            return ResponseEntity.ok(Map.of("success", true, "data", latest != null ? latest : Map.of()));
+        } catch (Exception e) {
+            System.err.println("Refund status endpoint error: " + e.getMessage());
+            return ResponseEntity.status(500).body(Map.of("success", false, "message", "Internal server error: " + e.getMessage()));
         }
     }
 }

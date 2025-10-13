@@ -6,6 +6,8 @@ import com.Daad.ecommerce.repository.CartRepository;
 import com.Daad.ecommerce.repository.OrderRepository;
 import com.Daad.ecommerce.repository.ProductRepository;
 import com.Daad.ecommerce.repository.VendorRepository;
+import com.Daad.ecommerce.repository.VendorPayoutRepository;
+import com.Daad.ecommerce.service.DeliveryService;
 import com.Daad.ecommerce.repository.UserRepository;
 import com.Daad.ecommerce.security.SecurityUtils;
 import com.Daad.ecommerce.service.LocalUploadService;
@@ -28,13 +30,92 @@ public class OrderController {
 	@Autowired private OrderRepository orderRepository;
 	@Autowired private ProductRepository productRepository;
 	@Autowired private UserRepository userRepository;
-	@Autowired private VendorRepository vendorRepository;
+    @Autowired private VendorRepository vendorRepository;
+	@Autowired private VendorPayoutRepository vendorPayoutRepository;
+	@Autowired private DeliveryService deliveryService;
 	@Autowired private LocalUploadService localUploadService;
 	@Autowired private NotificationService notificationService;
 	@Autowired private PaymentService paymentService;
 	@Autowired private CartRepository cartRepository;
 
 	private int calculatePoints(double amount) { return (int) Math.floor(amount / 100.0); }
+
+	/**
+	 * Create delivery orders for each vendor in the order
+	 */
+	private void createDeliveryOrders(Order order, Map<String, Object> request) {
+		try {
+			// Group order items by vendor
+			Map<String, List<Map<String, Object>>> vendorItems = new HashMap<>();
+			
+			for (Order.Item item : order.getItems()) {
+				String vendorId = item.getVendorId();
+				if (vendorId != null) {
+					// Convert Item to Map for processing
+					Map<String, Object> itemMap = new HashMap<>();
+					itemMap.put("vendorId", vendorId);
+					itemMap.put("name", item.getProductName());
+					itemMap.put("quantity", item.getQuantity());
+					itemMap.put("price", item.getPrice());
+					itemMap.put("subtotal", item.getPrice() * item.getQuantity());
+					vendorItems.computeIfAbsent(vendorId, k -> new ArrayList<>()).add(itemMap);
+				}
+			}
+			
+			// Create delivery order for each vendor
+			for (Map.Entry<String, List<Map<String, Object>>> entry : vendorItems.entrySet()) {
+				String vendorId = entry.getKey();
+				List<Map<String, Object>> items = entry.getValue();
+				
+				// Calculate totals for this vendor
+				double vendorSubtotal = items.stream()
+					.mapToDouble(item -> (Double) item.get("subtotal"))
+					.sum();
+				
+				int totalItems = items.stream()
+					.mapToInt(item -> (Integer) item.get("quantity"))
+					.sum();
+				
+				// Build description
+				StringBuilder description = new StringBuilder();
+				for (Map<String, Object> item : items) {
+					description.append(item.get("quantity")).append(" X ").append(item.get("name"));
+					if (items.indexOf(item) < items.size() - 1) {
+						description.append(", ");
+					}
+				}
+				
+				// Prepare delivery order data
+				Map<String, Object> deliveryData = new HashMap<>();
+				deliveryData.put("customer_name", order.getShippingAddress().getFullName());
+				deliveryData.put("customer_phone", order.getShippingAddress().getPhoneNumber());
+				deliveryData.put("backup_phone", order.getShippingAddress().getPhoneNumber());
+				deliveryData.put("address_line", order.getShippingAddress().getAddressLine1());
+				deliveryData.put("city", order.getShippingAddress().getCity());
+				deliveryData.put("area", order.getShippingAddress().getState());
+				deliveryData.put("landmark", order.getShippingAddress().getAddressLine2());
+				deliveryData.put("shipping_notes", "Order #" + order.getId());
+				deliveryData.put("payment_method", order.getPaymentMethod());
+				deliveryData.put("total_amount", vendorSubtotal);
+				deliveryData.put("service_type", "standard");
+				deliveryData.put("no_of_items", totalItems);
+				deliveryData.put("description", description.toString());
+				deliveryData.put("reference_number", order.getId());
+				
+				// Create delivery order
+				Map<String, Object> result = deliveryService.createDeliveryOrder(order.getId(), vendorId, deliveryData);
+				
+				if (!(Boolean) result.get("success")) {
+					System.err.println("Failed to create delivery for vendor " + vendorId + ": " + result.get("error"));
+				} else {
+					System.out.println("Created delivery order for vendor " + vendorId + ": " + result.get("fincart_order_id"));
+				}
+			}
+			
+		} catch (Exception e) {
+			System.err.println("Error creating delivery orders: " + e.getMessage());
+		}
+	}
 
 	@PostMapping("/create")
 	@PreAuthorize("isAuthenticated()")
@@ -171,9 +252,78 @@ public class OrderController {
 			order.setPaymentReceipt(receiptData);
 			if (userId != null) order.setUserId(userId);
 
-			Order saved = orderRepository.save(order);
+            Order saved = orderRepository.save(order);
 			// persist order items for vendor queries
 			orderRepository.insertOrderItems(saved.getId(), processedItems);
+
+            // schedule vendor payouts after hold period (7 days)
+            try {
+                java.time.LocalDateTime scheduledFor = java.time.LocalDateTime.now().plusDays(7);
+                Map<String, Map<String, Object>> vendorAgg = new HashMap<>();
+                for (Order.Item it : processedItems) {
+                    String vId = it.getVendorId();
+                    if (vId == null) continue;
+                    double itemSubtotal = it.getPrice() * it.getQuantity();
+                    // Commission: default 10% if vendor not found
+                    double commissionRate = 10.0;
+                    try {
+                        var vendorOpt = vendorRepository.findById(vId);
+                        if (vendorOpt.isPresent()) {
+                            var v = vendorOpt.get();
+                            if (v.getCommission() != null) commissionRate = v.getCommission();
+                        }
+                    } catch (Exception ignored) {}
+
+                    double commissionAmount = itemSubtotal * (commissionRate / 100.0);
+                    double netAmount = itemSubtotal - commissionAmount;
+                    var agg = vendorAgg.getOrDefault(vId, new HashMap<>());
+                    agg.put("gross", ((Double) agg.getOrDefault("gross", 0.0)) + itemSubtotal);
+                    agg.put("commission", ((Double) agg.getOrDefault("commission", 0.0)) + commissionAmount);
+                    agg.put("net", ((Double) agg.getOrDefault("net", 0.0)) + netAmount);
+
+                    // snapshot bank details
+                    try {
+                        var vendorOpt = vendorRepository.findById(vId);
+                        if (vendorOpt.isPresent()) {
+                            var v = vendorOpt.get();
+                            String bankJson = v.getBankDetails();
+                            if (bankJson != null && !bankJson.isBlank()) {
+                                var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                                var node = mapper.readTree(bankJson);
+                                agg.put("bank_account_number", node.path("accountNumber").asText(null));
+                                agg.put("bank_routing_number", node.path("routingNumber").asText(null));
+                                agg.put("bank_account_holder_name", node.path("holderName").asText(v.getBusinessName()));
+                                agg.put("bank_name", node.path("bankName").asText(null));
+                            } else {
+                                agg.put("bank_account_holder_name", v.getBusinessName());
+                            }
+                        }
+                    } catch (Exception ignored) {}
+
+                    vendorAgg.put(vId, agg);
+                }
+
+                for (var entry : vendorAgg.entrySet()) {
+                    String vId = entry.getKey();
+                    Map<String, Object> agg = entry.getValue();
+                    double gross = (Double) agg.get("gross");
+                    double commission = (Double) agg.get("commission");
+                    double net = (Double) agg.get("net");
+                    Map<String, Object> bank = new HashMap<>();
+                    bank.put("bank_account_number", agg.get("bank_account_number"));
+                    bank.put("bank_routing_number", agg.get("bank_routing_number"));
+                    bank.put("bank_account_holder_name", agg.get("bank_account_holder_name"));
+                    bank.put("bank_name", agg.get("bank_name"));
+                    // persist payout
+                    try {
+                        vendorPayoutRepository.insertPayout(vId, saved.getId(), gross, commission, net, scheduledFor, bank);
+                    } catch (Exception e) {
+                        System.err.println("Failed to insert vendor payout: " + e.getMessage());
+                    }
+                }
+            } catch (Exception e) {
+                System.err.println("Vendor payouts scheduling failed: " + e.getMessage());
+            }
 
 			if (userId != null) {
 				var userOpt = userRepository.findById(userId);
@@ -197,6 +347,13 @@ public class OrderController {
 				}
 			} catch (Exception e) {
 				System.err.println("Failed to send order notification: " + e.getMessage());
+			}
+
+			// Create delivery orders for each vendor
+			try {
+				createDeliveryOrders(saved, orderData);
+			} catch (Exception e) {
+				System.err.println("Failed to create delivery orders: " + e.getMessage());
 			}
 
 			if ("bank-transfer".equalsIgnoreCase(paymentMethod)) {
@@ -325,6 +482,108 @@ public class OrderController {
 	}
 
 	// Get by id
+
+	// Cancel order with refund/void processing
+	@PostMapping("/{orderId}/cancel")
+	@PreAuthorize("isAuthenticated()")
+	public ResponseEntity<Map<String, Object>> cancelOrder(@PathVariable String orderId, @RequestBody(required = false) com.Daad.ecommerce.dto.PaymentDtos.CancelOrderRequest cancelRequest) {
+		try {
+			String userId = SecurityUtils.currentUserId();
+			var orderOpt = orderRepository.findById(orderId);
+			if (orderOpt.isEmpty()) {
+				return ResponseEntity.status(404).body(Map.of("success", false, "message", "Order not found"));
+			}
+			var order = orderOpt.get();
+			
+			// Verify user owns the order
+			if (order.getUserId() == null || !order.getUserId().equals(userId)) {
+				return ResponseEntity.status(403).body(Map.of("success", false, "message", "Not authorized to cancel this order"));
+			}
+			
+			// Check if order is already cancelled
+			if ("cancelled".equalsIgnoreCase(order.getOrderStatus())) {
+				return ResponseEntity.status(400).body(Map.of("success", false, "message", "Order already cancelled"));
+			}
+			
+			// Check if order can be cancelled (not shipped or delivered)
+			if ("shipped".equalsIgnoreCase(order.getOrderStatus()) || "delivered".equalsIgnoreCase(order.getOrderStatus())) {
+				return ResponseEntity.status(400).body(Map.of("success", false, "message", "Cannot cancel order that is already shipped or delivered"));
+			}
+			
+			// Check if order is paid
+			if (!"paid".equalsIgnoreCase(order.getPaymentStatus()) && !"completed".equalsIgnoreCase(order.getPaymentStatus())) {
+				return ResponseEntity.status(400).body(Map.of("success", false, "message", "Order not eligible for refund/void. Payment status: " + order.getPaymentStatus()));
+			}
+
+			// Check if already refunded/voided
+			if ("refunded".equalsIgnoreCase(order.getPaymentStatus()) || "voided".equalsIgnoreCase(order.getPaymentStatus())) {
+				return ResponseEntity.status(400).body(Map.of("success", false, "message", "Order already refunded/voided"));
+			}
+
+			String reason = cancelRequest != null ? cancelRequest.getReason() : "Customer requested cancellation";
+			String decision;
+			Object paymentResult;
+			
+			try {
+				decision = paymentService.determineRefundType(orderId);
+			} catch (Exception e) {
+				return ResponseEntity.status(400).body(Map.of("success", false, "message", e.getMessage()));
+			}
+			
+        if ("VOID".equalsIgnoreCase(decision)) {
+				paymentResult = paymentService.voidTransaction(order.getTransactionId(), orderId, reason);
+			} else {
+				paymentResult = paymentService.refundTransaction(order.getTransactionId(), orderId, null, reason);
+			}
+
+        // Auto-cancel any pending vendor payouts for this order
+        try {
+            vendorPayoutRepository.cancelPendingByOrderId(orderId, reason);
+        } catch (Exception ignore) {}
+
+			// Update order status to cancelled
+			orderRepository.updateOrderStatus(orderId, "cancelled");
+			
+			// Update cancellation timestamp and reason
+			// Note: This would need to be added to OrderRepository if not already present
+			// String updateSql = "UPDATE orders SET cancelled_at = NOW(), cancellation_reason = ?, updated_at = NOW() WHERE id = ?";
+
+			com.Daad.ecommerce.dto.PaymentDtos.CancellationResponse response = new com.Daad.ecommerce.dto.PaymentDtos.CancellationResponse();
+			response.setSuccess(true);
+			response.setOrderId(orderId);
+			response.setOrderStatus("cancelled");
+			response.setMessage("Order cancelled successfully");
+			
+			if (paymentResult instanceof com.Daad.ecommerce.dto.PaymentDtos.VoidResponse) {
+				// Convert VoidResponse to RefundResponse for consistency
+				com.Daad.ecommerce.dto.PaymentDtos.VoidResponse voidResp = (com.Daad.ecommerce.dto.PaymentDtos.VoidResponse) paymentResult;
+				com.Daad.ecommerce.dto.PaymentDtos.RefundResponse refundResp = new com.Daad.ecommerce.dto.PaymentDtos.RefundResponse();
+				refundResp.setSuccess(voidResp.isSuccess());
+				refundResp.setRefundType("VOID");
+				refundResp.setTransactionId(voidResp.getTransactionId());
+				refundResp.setStatus(voidResp.getStatus());
+				refundResp.setMessage(voidResp.getMessage());
+				refundResp.setRefundedAt(voidResp.getVoidedAt());
+				response.setRefundDetails(refundResp);
+			} else if (paymentResult instanceof com.Daad.ecommerce.dto.PaymentDtos.RefundResponse) {
+				response.setRefundDetails((com.Daad.ecommerce.dto.PaymentDtos.RefundResponse) paymentResult);
+			}
+
+			return ResponseEntity.ok(Map.of(
+				"success", response.isSuccess(),
+				"message", response.getMessage(),
+				"orderId", response.getOrderId(),
+				"orderStatus", response.getOrderStatus(),
+				"refundType", decision,
+				"refundDetails", response.getRefundDetails()
+			));
+			
+		} catch (Exception e) {
+			System.err.println("Order cancellation error: " + e.getMessage());
+			return ResponseEntity.status(500).body(Map.of("success", false, "message", "Internal server error: " + e.getMessage()));
+		}
+	}
+
 	@GetMapping("/details/{orderId}")
 	@PreAuthorize("isAuthenticated()")
 	public ResponseEntity<Map<String, Object>> getOrderById(@PathVariable String orderId) {
@@ -382,29 +641,6 @@ public class OrderController {
 		return ResponseEntity.ok(Map.of("success", true, "tracking", tracking));
 	}
 
-	// Cancel order
-	@PostMapping("/{orderId}/cancel")
-	@PreAuthorize("isAuthenticated()")
-	public ResponseEntity<Map<String, Object>> cancelOrder(@PathVariable String orderId, @RequestBody(required = false) Map<String, Object> body) {
-		String userId = SecurityUtils.currentUserId();
-		var orderOpt = orderRepository.findById(orderId);
-		if (orderOpt.isEmpty()) return ResponseEntity.status(404).body(Map.of("success", false, "message", "Order not found"));
-		Order order = orderOpt.get();
-		boolean isAdmin = SecurityUtils.hasRole("ADMIN");
-		if (!isAdmin && !Objects.equals(order.getUserId(), userId)) {
-			return ResponseEntity.status(403).body(Map.of("success", false, "message", "Not authorized to cancel this order"));
-		}
-		if ("cancelled".equalsIgnoreCase(order.getOrderStatus()) || "delivered".equalsIgnoreCase(order.getOrderStatus())) {
-			return ResponseEntity.status(400).body(Map.of("success", false, "message", "Order cannot be cancelled in its current status"));
-		}
-		String reason = body != null && body.get("reason") != null ? body.get("reason").toString() : null;
-		orderRepository.cancelOrder(orderId, reason);
-		var updated = orderRepository.findById(orderId).get();
-		try {
-			notificationService.notifyOrderCancellation(updated, "customer");
-		} catch (Exception ignored) {}
-		return ResponseEntity.ok(Map.of("success", true, "message", "Order cancelled successfully", "order", updated));
-	}
 
 	// Vendor: list vendor orders
 	@GetMapping("/vendor")

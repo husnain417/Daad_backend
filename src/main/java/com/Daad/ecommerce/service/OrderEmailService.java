@@ -1,6 +1,7 @@
 package com.Daad.ecommerce.service;
 
 import com.Daad.ecommerce.dto.Order;
+import com.Daad.ecommerce.repository.OrderRepository;
 import com.Daad.ecommerce.repository.UserRepository;
 import com.Daad.ecommerce.repository.VendorRepository;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,6 +24,9 @@ public class OrderEmailService {
 
     @Autowired
     private VendorRepository vendorRepository;
+    
+    @Autowired
+    private OrderRepository orderRepository;
 
     @Async("emailTaskExecutor")
     public void sendOrderConfirmationNotification(Order order, String customerEmail) {
@@ -183,6 +187,85 @@ public class OrderEmailService {
                 "refund-vendor-notification",
                 variables
             );
+        }
+    }
+
+    /**
+     * Send delivery tracking email to customer
+     */
+    public void sendDeliveryTrackingEmail(Map<String, Object> data) {
+        try {
+            String orderId = (String) data.get("order_id");
+            String trackingNumber = (String) data.get("tracking_number");
+            String trackUrl = (String) data.get("track_url");
+            String fincartOrderId = (String) data.get("fincart_order_id");
+
+            Map<String, Object> variables = new HashMap<>();
+            variables.put("orderId", orderId);
+            variables.put("trackingNumber", trackingNumber);
+            variables.put("trackUrl", trackUrl);
+            variables.put("fincartOrderId", fincartOrderId);
+
+            // Get customer email from order
+            Order order = orderRepository.findById(orderId).orElse(null);
+            if (order != null && order.getCustomerEmail() != null) {
+                emailTemplateService.sendHtmlEmail(
+                    order.getCustomerEmail(),
+                    "Your Order #" + orderId + " is Ready for Delivery",
+                    "delivery-tracking",
+                    variables
+                );
+            }
+        } catch (Exception e) {
+            System.err.println("Error sending delivery tracking email: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Send delivery status update email to customer
+     */
+    public void sendDeliveryStatusUpdateEmail(Map<String, Object> data) {
+        try {
+            String orderId = (String) data.get("order_id");
+            String fincartOrderId = (String) data.get("fincart_order_id");
+            String status = (String) data.get("status");
+            String subStatus = (String) data.get("sub_status");
+
+            Map<String, Object> variables = new HashMap<>();
+            variables.put("orderId", orderId);
+            variables.put("fincartOrderId", fincartOrderId);
+            variables.put("status", status);
+            variables.put("subStatus", subStatus);
+
+            // Get customer email from order
+            Order order = orderRepository.findById(orderId).orElse(null);
+            if (order != null && order.getCustomerEmail() != null) {
+                String subject = getDeliveryStatusSubject(status, subStatus);
+                emailTemplateService.sendHtmlEmail(
+                    order.getCustomerEmail(),
+                    subject,
+                    "delivery-status-update",
+                    variables
+                );
+            }
+        } catch (Exception e) {
+            System.err.println("Error sending delivery status update email: " + e.getMessage());
+        }
+    }
+
+    private String getDeliveryStatusSubject(String status, String subStatus) {
+        if ("successful".equals(status) && "delivered to customer".equals(subStatus)) {
+            return "Your Order Has Been Delivered Successfully!";
+        } else if ("processing".equals(status) && "out for delivery".equals(subStatus)) {
+            return "Your Order is Out for Delivery";
+        } else if ("processing".equals(status) && "picked up".equals(subStatus)) {
+            return "Your Order Has Been Picked Up";
+        } else if ("processing".equals(status) && "at courier hub".equals(subStatus)) {
+            return "Your Order is at Courier Hub";
+        } else if ("unsuccessful".equals(status)) {
+            return "Delivery Attempt Failed - Action Required";
+        } else {
+            return "Order Delivery Status Update";
         }
     }
 }

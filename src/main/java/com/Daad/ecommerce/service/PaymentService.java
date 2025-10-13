@@ -18,6 +18,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -267,6 +268,224 @@ public class PaymentService {
         } catch (Exception e) {
             return "{}";
         }
+    }
+
+    public Map<String, Object> paymentsGetLatestRefundForOrder(String orderId) {
+        return paymentRepository.getLatestRefundForOrder(orderId);
+    }
+
+    public Map<String, Object> getTransactionStatus(String transactionId) {
+        try {
+            String authToken = authenticateWithPaymob();
+            if (authToken == null) {
+                throw new RuntimeException("Failed to authenticate with Paymob");
+            }
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.set("Authorization", "Bearer " + authToken);
+
+            HttpEntity<String> entity = new HttpEntity<>(headers);
+            String url = paymobBaseUrl + "/acceptance/transactions/" + transactionId;
+            
+            @SuppressWarnings("unchecked")
+            Map<String, Object> response = restTemplate.getForObject(url, Map.class, entity);
+            
+            return response != null ? response : Map.of();
+        } catch (Exception e) {
+            System.err.println("Error fetching transaction status: " + e.getMessage());
+            return Map.of("error", e.getMessage());
+        }
+    }
+
+    public String determineRefundType(String orderId) {
+        Map<String, Object> tx = paymentRepository.getTransactionByOrderId(orderId);
+        if (tx == null) {
+            throw new RuntimeException("No completed transaction found for order");
+        }
+        
+        java.sql.Timestamp createdAt = (java.sql.Timestamp) tx.get("created_at");
+        String status = tx.get("status") != null ? tx.get("status").toString().toLowerCase() : "";
+        Boolean isRefunded = (Boolean) tx.get("is_refunded");
+        
+        // Check if already refunded
+        if (Boolean.TRUE.equals(isRefunded)) {
+            throw new RuntimeException("Transaction already refunded");
+        }
+        
+        // Check if transaction is completed/paid
+        if (!"success".equals(status) && !"paid".equals(status) && !"captured".equals(status) && !"completed".equals(status)) {
+            throw new RuntimeException("Cannot refund unpaid orders. Current status: " + status);
+        }
+        
+        boolean within24h = false;
+        if (createdAt != null) {
+            within24h = Duration.between(createdAt.toInstant(), Instant.now()).abs().toHours() < 24;
+        }
+        
+        // For transactions within 24 hours, try VOID first
+        if (within24h) {
+            return "VOID";
+        }
+        
+        return "REFUND";
+    }
+
+    public com.Daad.ecommerce.dto.PaymentDtos.VoidResponse voidTransaction(String transactionId, String orderId, String reason) {
+        com.Daad.ecommerce.dto.PaymentDtos.VoidResponse response = new com.Daad.ecommerce.dto.PaymentDtos.VoidResponse();
+        response.setTransactionId(transactionId);
+        
+        try {
+            String authToken = authenticateWithPaymob();
+            if (authToken == null) {
+                throw new RuntimeException("Failed to authenticate with Paymob");
+            }
+
+            Map<String, Object> req = new HashMap<>();
+            req.put("auth_token", authToken);
+            req.put("transaction_id", transactionId);
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            HttpEntity<Map<String, Object>> entity = new HttpEntity<>(req, headers);
+
+            String url = paymobBaseUrl + "/acceptance/void_refund/void";
+            @SuppressWarnings("unchecked")
+            Map<String, Object> paymobResponse = restTemplate.postForObject(url, entity, Map.class);
+
+            String responseJson = toJson(paymobResponse != null ? paymobResponse : Map.of("message", "null response"));
+            
+            // Update payment transaction status
+            paymentRepository.updatePaymentTransactionStatus(transactionId, "voided", responseJson);
+
+            // Update order refund fields
+            Map<String, Object> refundFields = new HashMap<>();
+            refundFields.put("refund_status", "voided");
+            refundFields.put("refund_amount", null);
+            refundFields.put("refund_reference", null);
+            refundFields.put("refunded_at", java.time.LocalDateTime.now());
+            refundFields.put("refund_reason", reason != null ? reason : "order cancelled - void");
+            paymentRepository.updateOrderRefundStatus(orderId, refundFields);
+
+            // Insert refund transaction record
+            String initiatedBy = com.Daad.ecommerce.security.SecurityUtils.currentUserId();
+            if (initiatedBy == null || initiatedBy.isBlank()) initiatedBy = "system";
+            paymentRepository.insertRefundTransaction(orderId, transactionId, "VOID", 0.0, "EGP", "completed", reason != null ? reason : "order cancel void", initiatedBy, responseJson);
+
+            response.setSuccess(true);
+            response.setStatus("voided");
+            response.setVoidedAt(java.time.LocalDateTime.now());
+            response.setMessage("Transaction voided successfully");
+            
+        } catch (Exception e) {
+            System.err.println("Error voiding transaction: " + e.getMessage());
+            response.setSuccess(false);
+            response.setStatus("failed");
+            response.setMessage("Failed to void transaction: " + e.getMessage());
+            
+            // Log failed attempt
+            try {
+                String initiatedBy = com.Daad.ecommerce.security.SecurityUtils.currentUserId();
+                if (initiatedBy == null || initiatedBy.isBlank()) initiatedBy = "system";
+                paymentRepository.insertRefundTransaction(orderId, transactionId, "VOID", 0.0, "EGP", "failed", reason != null ? reason : "order cancel void", initiatedBy, "{\"error\": \"" + e.getMessage() + "\"}");
+            } catch (Exception logError) {
+                System.err.println("Failed to log void error: " + logError.getMessage());
+            }
+        }
+        
+        return response;
+    }
+
+    public com.Daad.ecommerce.dto.PaymentDtos.RefundResponse refundTransaction(String transactionId, String orderId, Double amountCents, String reason) {
+        com.Daad.ecommerce.dto.PaymentDtos.RefundResponse response = new com.Daad.ecommerce.dto.PaymentDtos.RefundResponse();
+        response.setTransactionId(transactionId);
+        response.setCurrency("EGP");
+        
+        try {
+            String authToken = authenticateWithPaymob();
+            if (authToken == null) {
+                throw new RuntimeException("Failed to authenticate with Paymob");
+            }
+
+            // Get original transaction to validate amount
+            Map<String, Object> originalTx = paymentRepository.getTransactionByTransactionId(transactionId);
+            if (originalTx == null) {
+                throw new RuntimeException("Original transaction not found");
+            }
+            
+            Double originalAmount = ((java.math.BigDecimal) originalTx.get("amount")).doubleValue();
+            Double refundAmount = amountCents != null ? amountCents / 100.0 : originalAmount;
+            
+            // Validate refund amount
+            if (refundAmount <= 0 || refundAmount > originalAmount) {
+                throw new RuntimeException("Invalid refund amount. Must be > 0 and <= " + originalAmount);
+            }
+
+            Map<String, Object> req = new HashMap<>();
+            req.put("auth_token", authToken);
+            req.put("transaction_id", transactionId);
+            req.put("amount_cents", (int) (refundAmount * 100));
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            HttpEntity<Map<String, Object>> entity = new HttpEntity<>(req, headers);
+
+            String url = paymobBaseUrl + "/acceptance/void_refund/refund";
+            @SuppressWarnings("unchecked")
+            Map<String, Object> paymobResponse = restTemplate.postForObject(url, entity, Map.class);
+
+            String responseJson = toJson(paymobResponse != null ? paymobResponse : Map.of("message", "null response"));
+            
+            // Update payment transaction status
+            paymentRepository.updatePaymentTransactionStatus(transactionId, "refunded", responseJson);
+
+            String paymobRefundId = paymobResponse != null && paymobResponse.get("id") != null ? paymobResponse.get("id").toString() : null;
+            String internalRefundId = java.util.UUID.randomUUID().toString();
+
+            // Update order refund fields
+            Map<String, Object> refundFields = new HashMap<>();
+            refundFields.put("refund_status", "refunded");
+            refundFields.put("refund_amount", refundAmount);
+            refundFields.put("refund_reference", paymobRefundId);
+            refundFields.put("refunded_at", java.time.LocalDateTime.now());
+            refundFields.put("refund_reason", reason != null ? reason : "order cancelled - refund");
+            paymentRepository.updateOrderRefundStatus(orderId, refundFields);
+
+            // Mark payment transaction as refunded
+            paymentRepository.markTransactionAsRefunded(transactionId, internalRefundId);
+
+            // Insert refund transaction record
+            String initiatedBy = com.Daad.ecommerce.security.SecurityUtils.currentUserId();
+            if (initiatedBy == null || initiatedBy.isBlank()) initiatedBy = "system";
+            paymentRepository.insertRefundTransaction(orderId, transactionId, "REFUND", refundAmount, "EGP", "completed", reason != null ? reason : "order cancel refund", initiatedBy, responseJson);
+
+            response.setSuccess(true);
+            response.setRefundType("REFUND");
+            response.setRefundId(internalRefundId);
+            response.setPaymobRefundId(paymobRefundId);
+            response.setStatus("completed");
+            response.setAmountRefunded(refundAmount);
+            response.setRefundedAt(java.time.LocalDateTime.now());
+            response.setMessage("Refund processed successfully");
+            
+        } catch (Exception e) {
+            System.err.println("Error processing refund: " + e.getMessage());
+            response.setSuccess(false);
+            response.setRefundType("REFUND");
+            response.setStatus("failed");
+            response.setMessage("Failed to process refund: " + e.getMessage());
+            
+            // Log failed attempt
+            try {
+                String initiatedBy = com.Daad.ecommerce.security.SecurityUtils.currentUserId();
+                if (initiatedBy == null || initiatedBy.isBlank()) initiatedBy = "system";
+                paymentRepository.insertRefundTransaction(orderId, transactionId, "REFUND", amountCents != null ? amountCents / 100.0 : 0.0, "EGP", "failed", reason != null ? reason : "order cancel refund", initiatedBy, "{\"error\": \"" + e.getMessage() + "\"}");
+            } catch (Exception logError) {
+                System.err.println("Failed to log refund error: " + logError.getMessage());
+            }
+        }
+        
+        return response;
     }
 }
 

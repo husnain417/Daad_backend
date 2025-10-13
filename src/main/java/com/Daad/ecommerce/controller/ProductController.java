@@ -1448,27 +1448,43 @@ public class ProductController {
         }
     }
     
-    // Get products by vendor
+    // Get products by vendor (lightweight for brand page)
     @GetMapping("/vendor/{vendorId}")
     public ResponseEntity<Map<String, Object>> getProductsByVendor(
             @PathVariable String vendorId,
             @RequestParam(defaultValue = "1") Integer page,
             @RequestParam(defaultValue = "20") Integer limit,
-            @RequestParam(defaultValue = "all") String status) {
+            @RequestParam(defaultValue = "approved") String status,
+            @RequestParam(defaultValue = "false") Boolean light) {
         try {
-            List<Product> products = productRepository.getProductsByVendor(vendorId, page, limit, status);
-            int total = productRepository.countProductsByVendor(vendorId, status);
-            
-            return ResponseEntity.ok(Map.of(
-                "success", true,
-                "count", products.size(),
-                "total", total,
-                "pagination", Map.of(
+            if (light) {
+                // Lightweight response for brand pages
+                List<Map<String, Object>> items = productRepository.findLightweightByVendor(
+                    vendorId, status, limit, (page - 1) * limit);
+                
+                return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "count", items.size(),
                     "page", page,
-                    "pages", (int) Math.ceil((double) total / limit)
-                ),
-                "data", products
-            ));
+                    "limit", limit,
+                    "data", items
+                ));
+            } else {
+                // Full product objects for detailed views
+                List<Product> products = productRepository.getProductsByVendor(vendorId, page, limit, status);
+                int total = productRepository.countProductsByVendor(vendorId, status);
+                
+                return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "count", products.size(),
+                    "total", total,
+                    "pagination", Map.of(
+                        "page", page,
+                        "pages", (int) Math.ceil((double) total / limit)
+                    ),
+                    "data", products
+                ));
+            }
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                 "success", false,
@@ -1477,6 +1493,33 @@ public class ProductController {
         }
     }
     
+    // Get all brands/vendors for home page
+    @GetMapping("/brands")
+    public ResponseEntity<Map<String, Object>> getAllBrands(
+            @RequestParam(defaultValue = "1") Integer page,
+            @RequestParam(defaultValue = "20") Integer limit) {
+        try {
+            List<Map<String, Object>> brands = productRepository.findBrandsWithStats(page, limit);
+            int total = productRepository.countActiveVendors();
+            
+            return ResponseEntity.ok(Map.of(
+                "success", true,
+                "count", brands.size(),
+                "total", total,
+                "pagination", Map.of(
+                    "page", page,
+                    "pages", (int) Math.ceil((double) total / limit)
+                ),
+                "data", brands
+            ));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
+                "success", false,
+                "message", "Error fetching brands: " + e.getMessage()
+            ));
+        }
+    }
+
     // Get all products by vendor (no pagination) - for vendor dashboard
     @GetMapping("/vendor/{vendorId}/all")
     @PreAuthorize("hasRole('VENDOR')")
@@ -1556,6 +1599,107 @@ public class ProductController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                 "success", false,
                 "message", "Error updating approval details: " + e.getMessage()
+            ));
+        }
+    }
+
+    // Unified Search API - searches products, categories, and vendors
+    @GetMapping("/search-all")
+    public ResponseEntity<Map<String, Object>> searchAll(
+            @RequestParam String query,
+            @RequestParam(defaultValue = "10") Integer limit) {
+        try {
+            if (query == null || query.trim().isEmpty()) {
+                return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "query", query,
+                    "results", Map.of(
+                        "products", List.of(),
+                        "categories", List.of(),
+                        "vendors", List.of()
+                    ),
+                    "total", 0
+                ));
+            }
+
+            // Search products
+            List<Map<String, Object>> products = productRepository.searchProducts(query.trim(), limit);
+            
+            // Search categories
+            List<Map<String, Object>> categories = productRepository.searchCategories(query.trim(), limit);
+            
+            // Search vendors
+            List<Map<String, Object>> vendors = productRepository.searchVendors(query.trim(), limit);
+            
+            int totalResults = products.size() + categories.size() + vendors.size();
+            
+            return ResponseEntity.ok(Map.of(
+                "success", true,
+                "query", query,
+                "results", Map.of(
+                    "products", products,
+                    "categories", categories,
+                    "vendors", vendors
+                ),
+                "total", totalResults,
+                "counts", Map.of(
+                    "products", products.size(),
+                    "categories", categories.size(),
+                    "vendors", vendors.size()
+                )
+            ));
+            
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
+                "success", false,
+                "message", "Search failed: " + e.getMessage()
+            ));
+        }
+    }
+
+    // Search suggestions for autocomplete
+    @GetMapping("/search/suggestions")
+    public ResponseEntity<Map<String, Object>> getSearchSuggestions(
+            @RequestParam String query,
+            @RequestParam(defaultValue = "5") Integer limit) {
+        try {
+            if (query == null || query.trim().isEmpty() || query.trim().length() < 1) {
+                return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "suggestions", List.of()
+                ));
+            }
+
+            List<String> suggestions = new ArrayList<>();
+            
+            // Get product name suggestions
+            List<String> productSuggestions = productRepository.getProductNameSuggestions(query.trim(), limit);
+            suggestions.addAll(productSuggestions);
+            
+            // Get category name suggestions
+            List<String> categorySuggestions = productRepository.getCategoryNameSuggestions(query.trim(), limit);
+            suggestions.addAll(categorySuggestions);
+            
+            // Get vendor name suggestions
+            List<String> vendorSuggestions = productRepository.getVendorNameSuggestions(query.trim(), limit);
+            suggestions.addAll(vendorSuggestions);
+            
+            // Remove duplicates and limit results
+            suggestions = suggestions.stream()
+                .distinct()
+                .limit(limit * 3) // Allow more suggestions for autocomplete
+                .collect(Collectors.toList());
+            
+            return ResponseEntity.ok(Map.of(
+                "success", true,
+                "query", query,
+                "suggestions", suggestions
+            ));
+            
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
+                "success", false,
+                "message", "Search suggestions failed: " + e.getMessage()
             ));
         }
     }

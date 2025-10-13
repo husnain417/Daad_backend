@@ -517,6 +517,86 @@ public class VendorDashboardController {
         }
     }
 
+    // Filtered Orders API for Vendor Dashboard
+    @GetMapping("/orders/filtered")
+    public ResponseEntity<Map<String, Object>> getFilteredOrders(
+            @RequestParam(required = false) String productName,
+            @RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String endDate,
+            @RequestParam(required = false) String orderStatus,
+            @RequestParam(defaultValue = "1") Integer page,
+            @RequestParam(defaultValue = "20") Integer limit) {
+        try {
+            String vendorId = getCurrentVendorId();
+            
+            List<Map<String, Object>> orders = orderRepository.findVendorOrdersWithFilters(
+                vendorId, productName, startDate, endDate, orderStatus, page, limit);
+            
+            int total = orderRepository.countVendorOrdersWithFilters(
+                vendorId, productName, startDate, endDate, orderStatus);
+            
+            return ResponseEntity.ok(Map.of(
+                "success", true,
+                "count", orders.size(),
+                "total", total,
+                "pagination", Map.of(
+                    "page", page,
+                    "pages", (int) Math.ceil((double) total / limit)
+                ),
+                "data", orders
+            ));
+            
+        } catch (Exception e) {
+            System.err.println("Error in getFilteredOrders: " + e.getMessage());
+            e.printStackTrace();
+            
+            return ResponseEntity.status(500).body(Map.of(
+                "success", false,
+                "message", "Error fetching filtered orders: " + e.getMessage()
+            ));
+        }
+    }
+
+    // Filtered Products API for Vendor Dashboard
+    @GetMapping("/products/filtered")
+    public ResponseEntity<Map<String, Object>> getFilteredProducts(
+            @RequestParam(required = false) String productName,
+            @RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String endDate,
+            @RequestParam(required = false) String productStatus,
+            @RequestParam(defaultValue = "1") Integer page,
+            @RequestParam(defaultValue = "20") Integer limit) {
+        try {
+            String vendorId = getCurrentVendorId();
+            
+            List<Map<String, Object>> products = productRepository.findVendorProductsWithFilters(
+                vendorId, productName, startDate, endDate, productStatus, page, limit);
+            
+            int total = productRepository.countVendorProductsWithFilters(
+                vendorId, productName, startDate, endDate, productStatus);
+            
+            return ResponseEntity.ok(Map.of(
+                "success", true,
+                "count", products.size(),
+                "total", total,
+                "pagination", Map.of(
+                    "page", page,
+                    "pages", (int) Math.ceil((double) total / limit)
+                ),
+                "data", products
+            ));
+            
+        } catch (Exception e) {
+            System.err.println("Error in getFilteredProducts: " + e.getMessage());
+            e.printStackTrace();
+            
+            return ResponseEntity.status(500).body(Map.of(
+                "success", false,
+                "message", "Error fetching filtered products: " + e.getMessage()
+            ));
+        }
+    }
+
     @GetMapping("/financial-summary")
     public ResponseEntity<Map<String, Object>> getFinancialSummary(@RequestParam(required = false) Integer year) {
         try {

@@ -292,7 +292,7 @@ public class UserController {
 
     @PostMapping("/google-auth")
     public ResponseEntity<?> googleAuth(@RequestBody AuthDtos.GoogleAuthRequest request,
-                                        @Value("${google.client-id:}") String googleClientId) {
+                                        @Value("${google.client.id:}") String googleClientId) {
         if (request == null || request.id_token == null || request.id_token.isBlank()) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
                     "success", false,
@@ -301,10 +301,52 @@ public class UserController {
         }
 
         try {
-            // TODO: Verify Google ID token using Google libraries; for now, accept input as placeholder
-            String email = "user" + System.currentTimeMillis() + "@example.com";
-            String name = "google_user";
-            String googleId = UUID.randomUUID().toString();
+            // Verify Google ID token using Google libraries
+            String email;
+            String name;
+            String googleId;
+            
+            if (googleClientId != null && !googleClientId.trim().isEmpty() && 
+                !googleClientId.equals("your_google_client_id_here")) {
+                // Real Google token verification
+                try {
+                    com.google.api.client.http.javanet.NetHttpTransport transport = 
+                        new com.google.api.client.http.javanet.NetHttpTransport();
+                    com.google.api.client.json.gson.GsonFactory jsonFactory = 
+                        new com.google.api.client.json.gson.GsonFactory();
+                    
+                    com.google.api.client.googleapis.auth.oauth2.GoogleIdTokenVerifier verifier = 
+                        new com.google.api.client.googleapis.auth.oauth2.GoogleIdTokenVerifier.Builder(transport, jsonFactory)
+                            .setAudience(Collections.singletonList(googleClientId))
+                            .build();
+                    
+                    com.google.api.client.googleapis.auth.oauth2.GoogleIdToken idToken = verifier.verify(request.id_token);
+                    if (idToken != null) {
+                        com.google.api.client.googleapis.auth.oauth2.GoogleIdToken.Payload payload = idToken.getPayload();
+                        email = payload.getEmail();
+                        name = (String) payload.get("name");
+                        googleId = payload.getSubject();
+                        
+                        if (email == null || name == null || googleId == null) {
+                            throw new RuntimeException("Invalid Google token payload");
+                        }
+                    } else {
+                        throw new RuntimeException("Invalid Google ID token");
+                    }
+                } catch (Exception e) {
+                    System.err.println("Google token verification failed: " + e.getMessage());
+                    return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                        "success", false,
+                        "message", "Invalid Google token: " + e.getMessage()
+                    ));
+                }
+            } else {
+                // Fallback to mock implementation when Google client ID is not configured
+                System.out.println("Google client ID not configured, using mock implementation");
+                email = "user" + System.currentTimeMillis() + "@example.com";
+                name = "google_user";
+                googleId = UUID.randomUUID().toString();
+            }
 
             Optional<User> existing = userRepository.findByEmail(email);
             User user = existing.orElseGet(() -> {

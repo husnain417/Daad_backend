@@ -213,17 +213,17 @@ public class ReviewRepository {
     }
 
     public List<Review> findPendingReviews() {
-        String sql = "SELECT * FROM reviews WHERE status = 'pending' ORDER BY created_at ASC";
+        String sql = "SELECT * FROM reviews WHERE status::text = 'pending' ORDER BY created_at ASC";
         return jdbcTemplate.query(sql, reviewRowMapper);
     }
 
     public List<Review> findApprovedReviews() {
-        String sql = "SELECT * FROM reviews WHERE status = 'approved' ORDER BY created_at DESC";
+        String sql = "SELECT * FROM reviews WHERE status::text = 'approved' ORDER BY created_at DESC";
         return jdbcTemplate.query(sql, reviewRowMapper);
     }
 
     public List<Review> findRejectedReviews() {
-        String sql = "SELECT * FROM reviews WHERE status = 'rejected' ORDER BY created_at DESC";
+        String sql = "SELECT * FROM reviews WHERE status::text = 'rejected' ORDER BY created_at DESC";
         return jdbcTemplate.query(sql, reviewRowMapper);
     }
 }

@@ -10,6 +10,7 @@ import java.math.BigDecimal;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.util.stream.Collectors;
 
 @Repository
 public class ProductRepository {
@@ -564,26 +565,32 @@ public class ProductRepository {
     
     // Search
     public List<Product> searchProducts(String searchTerm) {
-        String sql = """
-            SELECT p.*,
-                   c.name as category_name, c.slug as category_slug, c.description as category_description,
-                   c.image_url as category_image_url, c.image_public_id as category_image_public_id,
-                   c.parent_category_id as category_parent_id, c.level as category_level, c.is_active as category_is_active,
-                   v.business_name as vendor_business_name, v.business_type as vendor_business_type,
-                   v.status as vendor_status, v.rating_average as vendor_rating
-            FROM products p
-            LEFT JOIN categories c ON p.category_id = c.id
-            LEFT JOIN vendors v ON p.vendor_id = v.id
-            WHERE (p.name ILIKE ? OR p.description ILIKE ?) AND p.is_active = true
-            ORDER BY p.name ASC
-            """;
-        String searchPattern = "%" + searchTerm + "%";
-        List<Product> products = jdbcTemplate.query(sql, productRowMapper, searchPattern, searchPattern);
-        for (Product product : products) {
-            loadInventory(product);
-            loadDefaultImages(product);
+        try {
+            String sql = """
+                SELECT p.*,
+                       c.name as category_name, c.slug as category_slug, c.description as category_description,
+                       c.image_url as category_image_url, c.image_public_id as category_image_public_id,
+                       c.parent_category_id as category_parent_id, c.level as category_level, c.is_active as category_is_active,
+                       v.business_name as vendor_business_name, v.business_type as vendor_business_type,
+                       v.status as vendor_status, v.rating_average as vendor_rating
+                FROM products p
+                LEFT JOIN categories c ON p.category_id = c.id
+                LEFT JOIN vendors v ON p.vendor_id = v.id
+                WHERE (p.name ILIKE ? OR p.description ILIKE ?) AND p.is_active = true AND p.status::text = 'approved'
+                ORDER BY p.name ASC
+                """;
+            String searchPattern = "%" + searchTerm + "%";
+            List<Product> products = jdbcTemplate.query(sql, productRowMapper, searchPattern, searchPattern);
+            for (Product product : products) {
+                loadInventory(product);
+                loadDefaultImages(product);
+            }
+            return products;
+        } catch (Exception e) {
+            System.err.println("Error in searchProducts (legacy): " + e.getMessage());
+            e.printStackTrace();
+            return new ArrayList<>();
         }
-        return products;
     }
     
     // Update stock
@@ -965,14 +972,14 @@ public class ProductRepository {
         
         // Add status filtering
         if ("approved".equals(status)) {
-            sqlBuilder.append(" AND p.status = 'approved'");
+            sqlBuilder.append(" AND p.status::text = 'approved'");
         } else if ("rejected".equals(status)) {
-            sqlBuilder.append(" AND p.status = 'rejected'");
+            sqlBuilder.append(" AND p.status::text = 'rejected'");
         } else if ("pending".equals(status)) {
-            sqlBuilder.append(" AND p.status = 'awaiting_approval'");
+            sqlBuilder.append(" AND p.status::text = 'awaiting_approval'");
         } else {
             // Default: show all statuses
-            sqlBuilder.append(" AND p.status IN ('rejected', 'approved', 'awaiting_approval')");
+            sqlBuilder.append(" AND p.status::text IN ('rejected', 'approved', 'awaiting_approval')");
         }
         
         sqlBuilder.append(" ORDER BY p.created_at DESC LIMIT ? OFFSET ?");
@@ -1197,14 +1204,14 @@ public class ProductRepository {
         
         // Add status filtering
         if ("approved".equals(status)) {
-            sqlBuilder.append(" AND status = 'approved'");
+            sqlBuilder.append(" AND status::text = 'approved'");
         } else if ("rejected".equals(status)) {
-            sqlBuilder.append(" AND status = 'rejected'");
+            sqlBuilder.append(" AND status::text = 'rejected'");
         } else if ("pending".equals(status)) {
-            sqlBuilder.append(" AND status = 'awaiting_approval'");
+            sqlBuilder.append(" AND status::text = 'awaiting_approval'");
         } else {
             // Default: show all statuses
-            sqlBuilder.append(" AND status IN ('rejected', 'approved', 'awaiting_approval')");
+            sqlBuilder.append(" AND status::text IN ('rejected', 'approved', 'awaiting_approval')");
         }
         
         return jdbcTemplate.queryForObject(sqlBuilder.toString(), Integer.class, params.toArray());
@@ -1230,17 +1237,17 @@ public class ProductRepository {
         
         // Add status filtering
         if ("approved".equals(status)) {
-            sqlBuilder.append(" AND p.status = 'approved'");
+            sqlBuilder.append(" AND p.status::text = 'approved'");
         } else if ("rejected".equals(status)) {
-            sqlBuilder.append(" AND p.status = 'rejected'");
+            sqlBuilder.append(" AND p.status::text = 'rejected'");
         } else if ("pending".equals(status)) {
-            sqlBuilder.append(" AND p.status = 'awaiting_approval'");
+            sqlBuilder.append(" AND p.status::text = 'awaiting_approval'");
         } else if ("awaiting_approval_and_approved".equals(status)) {
             // Special case for both awaiting_approval and approved
-            sqlBuilder.append(" AND p.status IN ('awaiting_approval', 'approved')");
+            sqlBuilder.append(" AND p.status::text IN ('awaiting_approval', 'approved')");
         } else {
             // Default: show all statuses
-            sqlBuilder.append(" AND p.status IN ('rejected', 'approved', 'awaiting_approval')");
+            sqlBuilder.append(" AND p.status::text IN ('rejected', 'approved', 'awaiting_approval')");
         }
         
         sqlBuilder.append(" ORDER BY p.created_at DESC");
@@ -1315,6 +1322,464 @@ public class ProductRepository {
             return UUID.fromString(uuidString);
         } catch (IllegalArgumentException e) {
             throw new RuntimeException("Invalid UUID format: " + uuidString, e);
+        }
+    }
+
+    // Lightweight fetch by vendor
+    public List<Map<String, Object>> findLightweightByVendor(
+            String vendorId,
+            String status,
+            int limit,
+            int offset
+    ) {
+        String sql = """
+            SELECT 
+                p.id,
+                p.name,
+                p.price,
+                p.status,
+                c.slug AS category_slug,
+                CASE 
+                    WHEN p.description IS NULL THEN NULL 
+                    ELSE LEFT(REGEXP_REPLACE(p.description, '\\s+', ' ', 'g'), 120)
+                END AS short_description,
+                COALESCE(imgs.image_urls, ARRAY[]::text[]) AS image_urls
+            FROM products p
+            LEFT JOIN categories c ON p.category_id = c.id
+            LEFT JOIN LATERAL (
+                SELECT ARRAY(
+                    SELECT pi.url 
+                    FROM product_images pi 
+                    WHERE pi.product_id = p.id AND pi.color IS NULL
+                    ORDER BY pi.is_primary DESC, pi.created_at ASC
+                    LIMIT 2
+                ) AS image_urls
+            ) imgs ON TRUE
+            WHERE p.is_active = TRUE 
+            AND p.vendor_id = ?::uuid
+            AND p.status = ?::product_status
+            ORDER BY p.created_at DESC
+            LIMIT ? OFFSET ?
+        """;
+
+        return jdbcTemplate.query(sql, new Object[]{vendorId, status, limit, offset}, (rs, rowNum) -> {
+            Map<String, Object> item = new HashMap<>();
+            item.put("id", rs.getString("id"));
+            item.put("name", rs.getString("name"));
+            item.put("price", rs.getBigDecimal("price"));
+            item.put("status", rs.getString("status"));
+            item.put("category_slug", rs.getString("category_slug"));
+            item.put("short_description", rs.getString("short_description"));
+            
+            // Handle PostgreSQL array - more robust handling
+            java.sql.Array array = rs.getArray("image_urls");
+            List<String> imageUrls = new ArrayList<>();
+            if (array != null) {
+                Object[] arrayObj = (Object[]) array.getArray();
+                for (Object obj : arrayObj) {
+                    if (obj != null) {
+                        imageUrls.add(obj.toString());
+                    }
+                }
+            }
+            item.put("image_urls", imageUrls);
+            
+            return item;
+        });
+    }
+
+    // Get brands/vendors with stats for home page
+    public List<Map<String, Object>> findBrandsWithStats(int page, int limit) {
+        String sql = """
+            SELECT 
+                v.id as vendor_id,
+                v.business_name,
+                v.business_type,
+                v.logo_url,
+                v.rating_average,
+                v.rating_count,
+                COUNT(p.id) as product_count
+            FROM vendors v
+            LEFT JOIN products p ON p.vendor_id = v.id AND p.is_active = TRUE AND p.status = 'approved'
+            WHERE v.status = 'approved'
+            GROUP BY v.id, v.business_name, v.business_type, v.logo_url, v.rating_average, v.rating_count
+            HAVING COUNT(p.id) > 0
+            ORDER BY v.business_name ASC
+            LIMIT ? OFFSET ?
+        """;
+        
+        int offset = (page - 1) * limit;
+        
+        return jdbcTemplate.query(sql, new Object[]{limit, offset}, (rs, rowNum) -> {
+            Map<String, Object> brand = new HashMap<>();
+            brand.put("vendorId", rs.getString("vendor_id"));
+            brand.put("businessName", rs.getString("business_name"));
+            brand.put("businessType", rs.getString("business_type"));
+            brand.put("logoUrl", rs.getString("logo_url"));
+            brand.put("ratingAverage", rs.getBigDecimal("rating_average"));
+            brand.put("ratingCount", rs.getInt("rating_count"));
+            brand.put("productCount", rs.getInt("product_count"));
+            return brand;
+        });
+    }
+
+    // Count active vendors with products
+    public int countActiveVendors() {
+        String sql = """
+            SELECT COUNT(DISTINCT v.id)
+            FROM vendors v
+            INNER JOIN products p ON p.vendor_id = v.id AND p.is_active = TRUE AND p.status = 'approved'
+            WHERE v.status = 'approved'
+        """;
+        
+        Integer count = jdbcTemplate.queryForObject(sql, Integer.class);
+        return count != null ? count : 0;
+    }
+
+    // Filtered Products for Vendor Dashboard
+    public List<Map<String, Object>> findVendorProductsWithFilters(
+            String vendorId, String productName, String startDate, 
+            String endDate, String productStatus, int page, int limit) {
+        
+        StringBuilder sql = new StringBuilder("""
+            SELECT 
+                p.id,
+                p.name,
+                p.price,
+                p.status,
+                p.created_at,
+                c.name as category_name
+            FROM products p
+            LEFT JOIN categories c ON p.category_id = c.id
+            WHERE p.vendor_id = ?::uuid
+        """);
+        
+        List<Object> params = new ArrayList<>();
+        params.add(vendorId);
+        
+        if (productName != null && !productName.trim().isEmpty()) {
+            sql.append(" AND LOWER(p.name) LIKE LOWER(?)");
+            params.add("%" + productName.trim() + "%");
+        }
+        
+        if (startDate != null && !startDate.trim().isEmpty()) {
+            sql.append(" AND p.created_at >= ?::timestamp");
+            params.add(startDate.trim());
+        }
+        
+        if (endDate != null && !endDate.trim().isEmpty()) {
+            sql.append(" AND p.created_at <= ?::timestamp");
+            params.add(endDate.trim() + " 23:59:59");
+        }
+        
+        if (productStatus != null && !productStatus.trim().isEmpty()) {
+            sql.append(" AND p.status = ?::product_status");
+            params.add(productStatus.trim());
+        }
+        
+        sql.append(" ORDER BY p.created_at DESC");
+        sql.append(" LIMIT ? OFFSET ?");
+        params.add(limit);
+        params.add((page - 1) * limit);
+        
+        return jdbcTemplate.query(sql.toString(), params.toArray(), (rs, rowNum) -> {
+            Map<String, Object> product = new HashMap<>();
+            product.put("id", rs.getString("id"));
+            product.put("name", rs.getString("name"));
+            product.put("price", rs.getBigDecimal("price"));
+            product.put("status", rs.getString("status"));
+            product.put("categoryName", rs.getString("category_name"));
+            product.put("createdAt", rs.getTimestamp("created_at"));
+            return product;
+        });
+    }
+
+    public int countVendorProductsWithFilters(
+            String vendorId, String productName, String startDate, 
+            String endDate, String productStatus) {
+        
+        StringBuilder sql = new StringBuilder("""
+            SELECT COUNT(*)
+            FROM products p
+            WHERE p.vendor_id = ?::uuid
+        """);
+        
+        List<Object> params = new ArrayList<>();
+        params.add(vendorId);
+        
+        if (productName != null && !productName.trim().isEmpty()) {
+            sql.append(" AND LOWER(p.name) LIKE LOWER(?)");
+            params.add("%" + productName.trim() + "%");
+        }
+        
+        if (startDate != null && !startDate.trim().isEmpty()) {
+            sql.append(" AND p.created_at >= ?::timestamp");
+            params.add(startDate.trim());
+        }
+        
+        if (endDate != null && !endDate.trim().isEmpty()) {
+            sql.append(" AND p.created_at <= ?::timestamp");
+            params.add(endDate.trim() + " 23:59:59");
+        }
+        
+        if (productStatus != null && !productStatus.trim().isEmpty()) {
+            sql.append(" AND p.status = ?::product_status");
+            params.add(productStatus.trim());
+        }
+        
+        Integer count = jdbcTemplate.queryForObject(sql.toString(), params.toArray(), Integer.class);
+        return count != null ? count : 0;
+    }
+
+    // Search Methods
+    public List<Map<String, Object>> searchProducts(String query, int limit) {
+        try {
+            String sql = """
+                SELECT 
+                    p.id,
+                    p.name,
+                    p.price,
+                    p.status,
+                    c.name as category_name,
+                    c.slug as category_slug,
+                    v.business_name as vendor_name,
+                    v.id as vendor_id,
+                    CASE 
+                        WHEN p.description IS NULL THEN NULL 
+                        ELSE LEFT(REGEXP_REPLACE(p.description, '\\s+', ' ', 'g'), 120)
+                    END AS short_description,
+                    COALESCE(imgs.image_urls, ARRAY[]::text[]) AS image_urls
+                FROM products p
+                LEFT JOIN categories c ON p.category_id = c.id
+                LEFT JOIN vendors v ON p.vendor_id = v.id
+                LEFT JOIN LATERAL (
+                    SELECT ARRAY(
+                        SELECT pi.url 
+                        FROM product_images pi 
+                        WHERE pi.product_id = p.id AND pi.color IS NULL
+                        ORDER BY pi.is_primary DESC, pi.created_at ASC
+                        LIMIT 2
+                    ) AS image_urls
+                ) imgs ON TRUE
+                WHERE p.is_active = TRUE 
+                    AND p.status::text = 'approved'
+                    AND (
+                        p.name ILIKE ? 
+                        OR p.description ILIKE ?
+                        OR c.name ILIKE ?
+                        OR v.business_name ILIKE ?
+                    )
+                ORDER BY 
+                    CASE 
+                        WHEN p.name ILIKE ? THEN 1
+                        WHEN c.name ILIKE ? THEN 2
+                        WHEN v.business_name ILIKE ? THEN 3
+                        ELSE 4
+                    END,
+                    p.created_at DESC
+                LIMIT ?
+            """;
+            
+            String searchPattern = "%" + query + "%";
+            Object[] params = {
+                searchPattern, searchPattern, searchPattern, searchPattern,
+                searchPattern, searchPattern, searchPattern, limit
+            };
+            
+            return jdbcTemplate.query(sql, params, (rs, rowNum) -> {
+                Map<String, Object> product = new HashMap<>();
+                product.put("id", rs.getString("id"));
+                product.put("name", rs.getString("name"));
+                product.put("price", rs.getBigDecimal("price"));
+                product.put("status", rs.getString("status"));
+                product.put("categoryName", rs.getString("category_name"));
+                product.put("categorySlug", rs.getString("category_slug"));
+                product.put("vendorName", rs.getString("vendor_name"));
+                product.put("vendorId", rs.getString("vendor_id"));
+                product.put("shortDescription", rs.getString("short_description"));
+                product.put("type", "product");
+                
+                // Handle PostgreSQL array for image_urls
+                java.sql.Array array = rs.getArray("image_urls");
+                List<String> imageUrls = new ArrayList<>();
+                if (array != null) {
+                    Object[] arrayObj = (Object[]) array.getArray();
+                    for (Object obj : arrayObj) {
+                        if (obj != null) {
+                            imageUrls.add(obj.toString());
+                        }
+                    }
+                }
+                product.put("imageUrls", imageUrls);
+                
+                return product;
+            });
+        } catch (Exception e) {
+            System.err.println("Error in searchProducts: " + e.getMessage());
+            e.printStackTrace();
+            return new ArrayList<>();
+        }
+    }
+
+    public List<Map<String, Object>> searchCategories(String query, int limit) {
+        try {
+            String sql = """
+                SELECT 
+                    c.id,
+                    c.name,
+                    c.slug,
+                    c.description,
+                    c.image_url,
+                    COUNT(p.id) as product_count
+                FROM categories c
+                LEFT JOIN products p ON p.category_id = c.id AND p.is_active = TRUE AND p.status::text = 'approved'
+                WHERE c.name ILIKE ?
+                    OR c.description ILIKE ?
+                GROUP BY c.id, c.name, c.slug, c.description, c.image_url
+                ORDER BY 
+                    CASE 
+                        WHEN c.name ILIKE ? THEN 1
+                        ELSE 2
+                    END,
+                    product_count DESC
+                LIMIT ?
+            """;
+            
+            String searchPattern = "%" + query + "%";
+            Object[] params = {searchPattern, searchPattern, searchPattern, limit};
+            
+            return jdbcTemplate.query(sql, params, (rs, rowNum) -> {
+                Map<String, Object> category = new HashMap<>();
+                category.put("id", rs.getString("id"));
+                category.put("name", rs.getString("name"));
+                category.put("slug", rs.getString("slug"));
+                category.put("description", rs.getString("description"));
+                category.put("imageUrl", rs.getString("image_url"));
+                category.put("productCount", rs.getInt("product_count"));
+                category.put("type", "category");
+                return category;
+            });
+        } catch (Exception e) {
+            System.err.println("Error in searchCategories: " + e.getMessage());
+            e.printStackTrace();
+            return new ArrayList<>();
+        }
+    }
+
+    public List<Map<String, Object>> searchVendors(String query, int limit) {
+        try {
+            String sql = """
+                SELECT 
+                    v.id as vendor_id,
+                    v.business_name,
+                    v.business_type,
+                    v.logo_url,
+                    v.rating_average,
+                    v.rating_count,
+                    COUNT(p.id) as product_count
+                FROM vendors v
+                LEFT JOIN products p ON p.vendor_id = v.id AND p.is_active = TRUE AND p.status::text = 'approved'
+                WHERE v.status::text = 'approved'
+                    AND (
+                        v.business_name ILIKE ?
+                        OR v.business_type::text ILIKE ?
+                    )
+                GROUP BY v.id, v.business_name, v.business_type, v.logo_url, v.rating_average, v.rating_count
+                ORDER BY 
+                    CASE 
+                        WHEN v.business_name ILIKE ? THEN 1
+                        ELSE 2
+                    END,
+                    product_count DESC
+                LIMIT ?
+            """;
+            
+            String searchPattern = "%" + query + "%";
+            Object[] params = {searchPattern, searchPattern, searchPattern, limit};
+            
+            return jdbcTemplate.query(sql, params, (rs, rowNum) -> {
+                Map<String, Object> vendor = new HashMap<>();
+                vendor.put("vendorId", rs.getString("vendor_id"));
+                vendor.put("businessName", rs.getString("business_name"));
+                vendor.put("businessType", rs.getString("business_type"));
+                vendor.put("logoUrl", rs.getString("logo_url"));
+                vendor.put("ratingAverage", rs.getBigDecimal("rating_average"));
+                vendor.put("ratingCount", rs.getInt("rating_count"));
+                vendor.put("productCount", rs.getInt("product_count"));
+                vendor.put("type", "vendor");
+                return vendor;
+            });
+        } catch (Exception e) {
+            System.err.println("Error in searchVendors: " + e.getMessage());
+            e.printStackTrace();
+            return new ArrayList<>();
+        }
+    }
+
+    // Search Suggestions Methods
+    public List<String> getProductNameSuggestions(String query, int limit) {
+        try {
+            String sql = """
+                SELECT DISTINCT p.name
+                FROM products p
+                WHERE p.is_active = TRUE 
+                    AND p.status::text = 'approved'
+                    AND p.name ILIKE ?
+                ORDER BY p.name
+                LIMIT ?
+            """;
+            
+            String searchPattern = "%" + query + "%";
+            Object[] params = {searchPattern, limit};
+            
+            return jdbcTemplate.queryForList(sql, params, String.class);
+        } catch (Exception e) {
+            System.err.println("Error in getProductNameSuggestions: " + e.getMessage());
+            e.printStackTrace();
+            return new ArrayList<>();
+        }
+    }
+
+    public List<String> getCategoryNameSuggestions(String query, int limit) {
+        try {
+            String sql = """
+                SELECT DISTINCT c.name
+                FROM categories c
+                WHERE c.name ILIKE ?
+                ORDER BY c.name
+                LIMIT ?
+            """;
+            
+            String searchPattern = "%" + query + "%";
+            Object[] params = {searchPattern, limit};
+            
+            return jdbcTemplate.queryForList(sql, params, String.class);
+        } catch (Exception e) {
+            System.err.println("Error in getCategoryNameSuggestions: " + e.getMessage());
+            e.printStackTrace();
+            return new ArrayList<>();
+        }
+    }
+
+    public List<String> getVendorNameSuggestions(String query, int limit) {
+        try {
+            String sql = """
+                SELECT DISTINCT v.business_name
+                FROM vendors v
+                WHERE v.status::text = 'approved'
+                    AND v.business_name ILIKE ?
+                ORDER BY v.business_name
+                LIMIT ?
+            """;
+            
+            String searchPattern = "%" + query + "%";
+            Object[] params = {searchPattern, limit};
+            
+            return jdbcTemplate.queryForList(sql, params, String.class);
+        } catch (Exception e) {
+            System.err.println("Error in getVendorNameSuggestions: " + e.getMessage());
+            e.printStackTrace();
+            return new ArrayList<>();
         }
     }
 }

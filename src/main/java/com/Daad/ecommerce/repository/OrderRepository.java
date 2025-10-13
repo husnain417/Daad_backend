@@ -542,7 +542,7 @@ public class OrderRepository {
             JOIN order_items oi ON oi.order_id = o.id
             JOIN products p ON p.id = oi.product_id
             LEFT JOIN users u ON o.user_id = u.id
-            WHERE p.vendor_id = ?::uuid
+            WHERE p.vendor_id = ?::uuid AND p.vendor_id IS NOT NULL
             ORDER BY o.created_at DESC
             """;
         List<Order> orders = jdbcTemplate.query(sql, orderWithUserRowMapper, parseUUID(vendorId));
@@ -733,7 +733,7 @@ public class OrderRepository {
                 FROM orders o
                 INNER JOIN order_items oi ON o.id = oi.order_id
                 INNER JOIN products p ON oi.product_id = p.id
-                WHERE p.vendor_id = ?::uuid
+                WHERE p.vendor_id = ?::uuid AND p.vendor_id IS NOT NULL
                 ORDER BY o.created_at DESC
                 """;
             List<Order> orders = jdbcTemplate.query(sql, orderRowMapper, parseUUID(vendorId));
@@ -753,18 +753,42 @@ public class OrderRepository {
             
             // First try the efficient query
             String sql = """
-                SELECT DISTINCT 
-                    o.id, o.user_id, o.shipping_address, o.subtotal, o.discount, o.discount_code,
-                    o.shipping_charges, o.total, o.points_used, o.points_earned, o.payment_method,
-                    o.payment_status, o.payment_receipt_url, o.order_status, o.is_first_order,
-                    o.tracking_number, o.estimated_delivery, o.delivered_at, o.cancelled_at,
-                    o.cancellation_reason, o.customer_email, o.created_at, o.updated_at,
-                    o.payment_provider, o.payment_reference, o.transaction_id, o.paid_at,
-                    o.failure_reason, o.payment_metadata
+                SELECT 
+                    o.id,
+                    o.user_id,
+                    o.subtotal,
+                    o.discount,
+                    o.discount_code,
+                    o.shipping_charges,
+                    o.total,
+                    o.points_used,
+                    o.points_earned,
+                    o.payment_method,
+                    o.payment_status,
+                    o.payment_receipt_url,
+                    o.order_status,
+                    o.is_first_order,
+                    o.tracking_number,
+                    o.estimated_delivery,
+                    o.delivered_at,
+                    o.cancelled_at,
+                    o.cancellation_reason,
+                    o.customer_email,
+                    o.created_at,
+                    o.updated_at,
+                    o.payment_provider,
+                    o.payment_reference,
+                    o.transaction_id,
+                    o.paid_at,
+                    o.failure_reason,
+                    o.payment_metadata
                 FROM orders o
-                INNER JOIN order_items oi ON o.id = oi.order_id
-                INNER JOIN products p ON oi.product_id = p.id
-                WHERE p.vendor_id = ?::uuid
+                WHERE EXISTS (
+                    SELECT 1
+                    FROM order_items oi
+                    JOIN products p ON p.id = oi.product_id
+                    WHERE oi.order_id = o.id AND p.vendor_id = ?::uuid
+                )
                 ORDER BY o.created_at DESC
                 LIMIT ?
                 """;
@@ -818,7 +842,7 @@ public class OrderRepository {
                 FROM orders o
                 INNER JOIN order_items oi ON o.id = oi.order_id
                 INNER JOIN products p ON oi.product_id = p.id
-                WHERE p.vendor_id = ?::uuid
+                WHERE p.vendor_id = ?::uuid AND p.vendor_id IS NOT NULL
                 AND o.order_status = 'delivered'
                 """;
             Double revenue = jdbcTemplate.queryForObject(sql, Double.class, parseUUID(vendorId));
@@ -836,7 +860,7 @@ public class OrderRepository {
                 FROM orders o
                 INNER JOIN order_items oi ON o.id = oi.order_id
                 INNER JOIN products p ON oi.product_id = p.id
-                WHERE p.vendor_id = ?::uuid
+                WHERE p.vendor_id = ?::uuid AND p.vendor_id IS NOT NULL
                 """;
             Integer count = jdbcTemplate.queryForObject(sql, Integer.class, parseUUID(vendorId));
             return count != null ? count : 0;
@@ -853,7 +877,7 @@ public class OrderRepository {
                 FROM orders o
                 INNER JOIN order_items oi ON o.id = oi.order_id
                 INNER JOIN products p ON oi.product_id = p.id
-                WHERE p.vendor_id = ?::uuid
+                WHERE p.vendor_id = ?::uuid AND p.vendor_id IS NOT NULL
                 AND o.order_status = 'pending'
                 """;
             Integer count = jdbcTemplate.queryForObject(sql, Integer.class, parseUUID(vendorId));
@@ -874,7 +898,7 @@ public class OrderRepository {
                 FROM orders o
                 INNER JOIN order_items oi ON o.id = oi.order_id
                 INNER JOIN products p ON oi.product_id = p.id
-                WHERE p.vendor_id = ?::uuid
+                WHERE p.vendor_id = ?::uuid AND p.vendor_id IS NOT NULL
                 GROUP BY o.order_status
                 """;
             
@@ -903,5 +927,104 @@ public class OrderRepository {
             }
             return emptyCounts;
         }
+    }
+
+    // Filtered Orders for Vendor Dashboard
+    public List<Map<String, Object>> findVendorOrdersWithFilters(
+            String vendorId, String productName, String startDate, 
+            String endDate, String orderStatus, int page, int limit) {
+        
+        StringBuilder sql = new StringBuilder("""
+            SELECT DISTINCT
+                o.id,
+                o.order_status,
+                o.total,
+                o.customer_email,
+                o.created_at,
+                COALESCE(STRING_AGG(DISTINCT p.name, ', '), '') as product_names
+            FROM orders o
+            LEFT JOIN order_items oi ON o.id = oi.order_id
+            LEFT JOIN products p ON oi.product_id = p.id
+            WHERE p.vendor_id = ?::uuid AND p.vendor_id IS NOT NULL
+        """);
+        
+        List<Object> params = new ArrayList<>();
+        params.add(vendorId);
+        
+        if (productName != null && !productName.trim().isEmpty()) {
+            sql.append(" AND LOWER(p.name) LIKE LOWER(?)");
+            params.add("%" + productName.trim() + "%");
+        }
+        
+        if (startDate != null && !startDate.trim().isEmpty()) {
+            sql.append(" AND o.created_at >= ?::timestamp");
+            params.add(startDate.trim());
+        }
+        
+        if (endDate != null && !endDate.trim().isEmpty()) {
+            sql.append(" AND o.created_at <= ?::timestamp");
+            params.add(endDate.trim() + " 23:59:59");
+        }
+        
+        if (orderStatus != null && !orderStatus.trim().isEmpty()) {
+            sql.append(" AND o.order_status = ?::order_status");
+            params.add(orderStatus.trim());
+        }
+        
+        sql.append(" GROUP BY o.id, o.order_status, o.total, o.customer_email, o.created_at");
+        sql.append(" ORDER BY o.created_at DESC");
+        sql.append(" LIMIT ? OFFSET ?");
+        params.add(limit);
+        params.add((page - 1) * limit);
+        
+        return jdbcTemplate.query(sql.toString(), params.toArray(), (rs, rowNum) -> {
+            Map<String, Object> order = new HashMap<>();
+            order.put("id", rs.getString("id"));
+            order.put("orderStatus", rs.getString("order_status"));
+            order.put("total", rs.getBigDecimal("total"));
+            order.put("customerEmail", rs.getString("customer_email"));
+            order.put("productNames", rs.getString("product_names"));
+            order.put("createdAt", rs.getTimestamp("created_at"));
+            return order;
+        });
+    }
+
+    public int countVendorOrdersWithFilters(
+            String vendorId, String productName, String startDate, 
+            String endDate, String orderStatus) {
+        
+        StringBuilder sql = new StringBuilder("""
+            SELECT COUNT(DISTINCT o.id)
+            FROM orders o
+            LEFT JOIN order_items oi ON o.id = oi.order_id
+            LEFT JOIN products p ON oi.product_id = p.id
+            WHERE p.vendor_id = ?::uuid AND p.vendor_id IS NOT NULL
+        """);
+        
+        List<Object> params = new ArrayList<>();
+        params.add(vendorId);
+        
+        if (productName != null && !productName.trim().isEmpty()) {
+            sql.append(" AND LOWER(p.name) LIKE LOWER(?)");
+            params.add("%" + productName.trim() + "%");
+        }
+        
+        if (startDate != null && !startDate.trim().isEmpty()) {
+            sql.append(" AND o.created_at >= ?::timestamp");
+            params.add(startDate.trim());
+        }
+        
+        if (endDate != null && !endDate.trim().isEmpty()) {
+            sql.append(" AND o.created_at <= ?::timestamp");
+            params.add(endDate.trim() + " 23:59:59");
+        }
+        
+        if (orderStatus != null && !orderStatus.trim().isEmpty()) {
+            sql.append(" AND o.order_status = ?::order_status");
+            params.add(orderStatus.trim());
+        }
+        
+        Integer count = jdbcTemplate.queryForObject(sql.toString(), params.toArray(), Integer.class);
+        return count != null ? count : 0;
     }
 }
