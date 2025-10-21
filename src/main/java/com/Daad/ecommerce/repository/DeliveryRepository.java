@@ -8,7 +8,6 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 @Repository
 public class DeliveryRepository {
@@ -146,9 +145,9 @@ public class DeliveryRepository {
         jdbcTemplate.update(sql, fincartOrderId, eventType, payload);
     }
 
-    public void markWebhookProcessed(String webhookId) {
-        String sql = "UPDATE delivery_webhook_logs SET processed = TRUE, processed_at = NOW() WHERE id = ?::uuid";
-        jdbcTemplate.update(sql, webhookId);
+    public void markWebhookProcessed(String fincartOrderId) {
+        String sql = "UPDATE delivery_webhook_logs SET processed = TRUE, processed_at = NOW() WHERE fincart_order_id = ?";
+        jdbcTemplate.update(sql, fincartOrderId);
     }
 
     public boolean isWebhookProcessed(String fincartOrderId, String eventType) {
@@ -159,10 +158,13 @@ public class DeliveryRepository {
 
     // Fincart Config
     public void updateFincartToken(String accessToken, long expiresAt) {
-        String sql = "INSERT INTO fincart_config (access_token, token_expires_at) VALUES (?, to_timestamp(?)) " +
-                    "ON CONFLICT (id) DO UPDATE SET access_token = EXCLUDED.access_token, " +
-                    "token_expires_at = EXCLUDED.token_expires_at, updated_at = NOW()";
-        jdbcTemplate.update(sql, accessToken, expiresAt);
+        // First, deactivate all existing configs
+        String deactivateSql = "UPDATE fincart_config SET is_active = FALSE, updated_at = NOW()";
+        jdbcTemplate.update(deactivateSql);
+        
+        // Then insert the new config as active
+        String insertSql = "INSERT INTO fincart_config (access_token, token_expires_at, is_active) VALUES (?, to_timestamp(?), TRUE)";
+        jdbcTemplate.update(insertSql, accessToken, expiresAt);
     }
 
     public Map<String, Object> getFincartConfig() {
