@@ -749,11 +749,14 @@ public class OrderRepository {
     
     public List<Order> findRecentOrdersByVendorId(String vendorId, int limit) {
         try {
-            System.out.println("Finding recent orders for vendor ID: " + vendorId + " with limit: " + limit);
+            UUID vendorUuid = parseUUID(vendorId);
+            if (vendorUuid == null) {
+                return new ArrayList<>();
+            }
             
-            // First try the efficient query
+            // Optimized: Use INNER JOIN with DISTINCT to get orders efficiently
             String sql = """
-                SELECT 
+                SELECT DISTINCT
                     o.id,
                     o.user_id,
                     o.subtotal,
@@ -781,36 +784,114 @@ public class OrderRepository {
                     o.transaction_id,
                     o.paid_at,
                     o.failure_reason,
-                    o.payment_metadata
+                    o.payment_metadata,
+                    o.shipping_full_name,
+                    o.shipping_address_line1,
+                    o.shipping_address_line2,
+                    o.shipping_city,
+                    o.shipping_state,
+                    o.shipping_postal_code,
+                    o.shipping_country,
+                    o.shipping_phone_number
                 FROM orders o
-                WHERE EXISTS (
-                    SELECT 1
-                    FROM order_items oi
-                    JOIN products p ON p.id = oi.product_id
-                    WHERE oi.order_id = o.id AND p.vendor_id = ?::uuid
-                )
+                INNER JOIN order_items oi ON oi.order_id = o.id
+                INNER JOIN products p ON p.id = oi.product_id
+                WHERE p.vendor_id = ?
                 ORDER BY o.created_at DESC
                 LIMIT ?
                 """;
             
-            List<Order> orders = jdbcTemplate.query(sql, orderRowMapper, parseUUID(vendorId), limit);
-            System.out.println("Efficient query found " + orders.size() + " orders");
+            List<Order> orders = jdbcTemplate.query(sql, orderRowMapper, vendorUuid, limit);
             
-            // If no orders found, try fallback method
             if (orders.isEmpty()) {
-                System.out.println("No orders found with efficient query, trying fallback method");
-                return findRecentOrdersByVendorIdFallback(vendorId, limit);
+                return new ArrayList<>();
             }
             
-            for (Order order : orders) {
-                loadOrderItems(order);
-            }
+            // Batch load all order items for all orders in ONE query (much faster than N queries)
+            loadOrderItemsBatch(orders, vendorId);
+            
             return orders;
         } catch (Exception e) {
             System.err.println("Error finding recent orders by vendor ID: " + vendorId + ", Error: " + e.getMessage());
             e.printStackTrace();
-            // Try fallback method
-            return findRecentOrdersByVendorIdFallback(vendorId, limit);
+            return new ArrayList<>();
+        }
+    }
+    
+    // Optimized: Load order items for multiple orders in a single batch query
+    private void loadOrderItemsBatch(List<Order> orders, String vendorId) {
+        if (orders == null || orders.isEmpty()) {
+            return;
+        }
+        
+        try {
+            // Extract order IDs as UUIDs
+            List<UUID> orderIds = orders.stream()
+                    .map(o -> parseUUID(o.getId()))
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
+            
+            if (orderIds.isEmpty()) {
+                return;
+            }
+            
+            UUID vendorUuid = parseUUID(vendorId);
+            
+            // Build IN clause with placeholders for better compatibility
+            String placeholders = String.join(",", Collections.nCopies(orderIds.size(), "?"));
+            
+            // Single query to load all items for all orders, filtered by vendor
+            String sql = String.format("""
+                SELECT 
+                    oi.order_id,
+                    oi.product_id, 
+                    p.vendor_id, 
+                    oi.product_name, 
+                    oi.color, 
+                    oi.size, 
+                    oi.quantity, 
+                    oi.price
+                FROM order_items oi
+                LEFT JOIN products p ON p.id = oi.product_id
+                WHERE oi.order_id IN (%s)
+                AND p.vendor_id = ?
+                ORDER BY oi.order_id, oi.product_name
+                """, placeholders);
+            
+            // Prepare parameters: order IDs + vendor UUID
+            List<Object> params = new ArrayList<>(orderIds);
+            params.add(vendorUuid);
+            
+            Map<String, List<Order.Item>> itemsByOrderId = new HashMap<>();
+            
+            // Use varargs instead of array to avoid deprecation warning
+            jdbcTemplate.query(sql, params.toArray(new Object[0]), (rs, rowNum) -> {
+                String orderId = rs.getString("order_id");
+                Order.Item item = new Order.Item();
+                item.setProduct(rs.getString("product_id"));
+                item.setVendorId(rs.getString("vendor_id"));
+                item.setProductName(rs.getString("product_name"));
+                item.setColor(rs.getString("color"));
+                item.setSize(rs.getString("size"));
+                item.setQuantity(rs.getInt("quantity"));
+                item.setPrice(rs.getDouble("price"));
+                
+                itemsByOrderId.computeIfAbsent(orderId, k -> new ArrayList<>()).add(item);
+                return null; // We're just using this to populate the map
+            });
+            
+            // Assign items to their respective orders
+            for (Order order : orders) {
+                List<Order.Item> items = itemsByOrderId.getOrDefault(order.getId(), new ArrayList<>());
+                order.setItems(items);
+            }
+        } catch (Exception e) {
+            System.err.println("Error batch loading order items: " + e.getMessage());
+            e.printStackTrace();
+            // Fallback: set empty items for all orders
+            for (Order order : orders) {
+                order.setItems(new ArrayList<>());
+            }
         }
     }
     

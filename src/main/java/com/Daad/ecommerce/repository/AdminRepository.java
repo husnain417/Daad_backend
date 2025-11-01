@@ -29,8 +29,16 @@ public class AdminRepository {
         int totalCustomers = jdbcTemplate.queryForObject(totalCustomersSql, Integer.class);
         stats.put("totalCustomers", totalCustomers);
         
-        // Total Revenue (sum of all delivered orders)
-        String totalRevenueSql = "SELECT COALESCE(SUM(total), 0) FROM orders WHERE order_status = 'delivered'";
+        // Total Revenue (sum of product prices only, excluding shipping charges)
+        // Matches vendor dashboard calculation: SUM(order_items.price * order_items.quantity)
+        String totalRevenueSql = """
+            SELECT COALESCE(SUM(oi.price * oi.quantity), 0)
+            FROM orders o
+            INNER JOIN order_items oi ON o.id = oi.order_id
+            INNER JOIN products p ON oi.product_id = p.id
+            WHERE o.order_status = 'delivered'
+            AND p.vendor_id IS NOT NULL
+            """;
         BigDecimal totalRevenue = jdbcTemplate.queryForObject(totalRevenueSql, BigDecimal.class);
         stats.put("totalRevenue", totalRevenue != null ? totalRevenue.doubleValue() : 0.0);
         
