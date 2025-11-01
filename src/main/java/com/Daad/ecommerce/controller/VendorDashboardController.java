@@ -401,7 +401,6 @@ public class VendorDashboardController {
             stats.put("totalRevenue", Math.round(totalRevenue * 100.0) / 100.0);
             stats.put("pendingOrders", pendingOrders);
             stats.put("adminCommission", adminCommissionPercentage);
-            stats.put("totalCommission", Math.round(totalCommission * 100.0) / 100.0);
             stats.put("netRevenue", Math.round(netRevenue * 100.0) / 100.0);
             
             return ResponseEntity.ok(Map.of("success", true, "data", stats));
@@ -419,7 +418,6 @@ public class VendorDashboardController {
                     "totalRevenue", 0.0,
                     "pendingOrders", 0,
                     "adminCommissionPercentage", 10.0,
-                    "totalCommission", 0.0,
                     "netRevenue", 0.0
                 ),
                 "message", "Stats temporarily unavailable"

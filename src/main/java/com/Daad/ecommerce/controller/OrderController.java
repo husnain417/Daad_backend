@@ -509,18 +509,41 @@ public class OrderController {
 			if ("shipped".equalsIgnoreCase(order.getOrderStatus()) || "delivered".equalsIgnoreCase(order.getOrderStatus())) {
 				return ResponseEntity.status(400).body(Map.of("success", false, "message", "Cannot cancel order that is already shipped or delivered"));
 			}
+
+			String reason = cancelRequest != null ? cancelRequest.getReason() : "Customer requested cancellation";
+			String paymentStatus = order.getPaymentStatus() != null ? order.getPaymentStatus().toLowerCase() : "pending";
 			
-			// Check if order is paid
-			if (!"paid".equalsIgnoreCase(order.getPaymentStatus()) && !"completed".equalsIgnoreCase(order.getPaymentStatus())) {
-				return ResponseEntity.status(400).body(Map.of("success", false, "message", "Order not eligible for refund/void. Payment status: " + order.getPaymentStatus()));
+			// Handle unpaid orders (pending, failed) - simple cancellation without refund
+			if (!"paid".equalsIgnoreCase(paymentStatus) && !"completed".equalsIgnoreCase(paymentStatus)) {
+				// Check if already refunded/voided (shouldn't happen for unpaid, but check anyway)
+				if ("refunded".equalsIgnoreCase(paymentStatus) || "voided".equalsIgnoreCase(paymentStatus)) {
+					return ResponseEntity.status(400).body(Map.of("success", false, "message", "Order already refunded/voided"));
+				}
+				
+				// Simple cancellation for unpaid orders
+				orderRepository.cancelOrder(orderId, reason);
+				
+				// Auto-cancel any pending vendor payouts for this order
+				try {
+					vendorPayoutRepository.cancelPendingByOrderId(orderId, reason);
+				} catch (Exception ignore) {}
+				
+				return ResponseEntity.ok(Map.of(
+					"success", true,
+					"message", "Order cancelled successfully (no payment to refund)",
+					"orderId", orderId,
+					"orderStatus", "cancelled",
+					"refundType", "NONE",
+					"note", "Order was unpaid, no refund required"
+				));
 			}
 
+			// Handle paid orders - requires refund/void processing
 			// Check if already refunded/voided
-			if ("refunded".equalsIgnoreCase(order.getPaymentStatus()) || "voided".equalsIgnoreCase(order.getPaymentStatus())) {
+			if ("refunded".equalsIgnoreCase(paymentStatus) || "voided".equalsIgnoreCase(paymentStatus)) {
 				return ResponseEntity.status(400).body(Map.of("success", false, "message", "Order already refunded/voided"));
 			}
 
-			String reason = cancelRequest != null ? cancelRequest.getReason() : "Customer requested cancellation";
 			String decision;
 			Object paymentResult;
 			
@@ -541,12 +564,8 @@ public class OrderController {
             vendorPayoutRepository.cancelPendingByOrderId(orderId, reason);
         } catch (Exception ignore) {}
 
-			// Update order status to cancelled
-			orderRepository.updateOrderStatus(orderId, "cancelled");
-			
-			// Update cancellation timestamp and reason
-			// Note: This would need to be added to OrderRepository if not already present
-			// String updateSql = "UPDATE orders SET cancelled_at = NOW(), cancellation_reason = ?, updated_at = NOW() WHERE id = ?";
+			// Update order status to cancelled (including cancellation timestamp and reason)
+			orderRepository.cancelOrder(orderId, reason);
 
 			com.Daad.ecommerce.dto.PaymentDtos.CancellationResponse response = new com.Daad.ecommerce.dto.PaymentDtos.CancellationResponse();
 			response.setSuccess(true);

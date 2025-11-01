@@ -246,7 +246,7 @@ public class OrderRepository {
                 payment_receipt_uploaded = ?, order_status = ?::order_status,
                 is_first_order = ?, tracking_number = ?, estimated_delivery = ?,
                 delivered_at = ?, cancelled_at = ?, cancellation_reason = ?, updated_at = NOW()
-            WHERE id = ?
+            WHERE id = ?::uuid
             """;
 
         jdbcTemplate.update(sql,
@@ -620,28 +620,28 @@ public class OrderRepository {
     }
 
     public void updateOrderStatus(String orderId, String status) {
-        String sql = "UPDATE orders SET order_status = ?::order_status, updated_at = NOW() WHERE id = ?";
-        jdbcTemplate.update(sql, status, parseUUID(orderId));
+        String sql = "UPDATE orders SET order_status = ?::order_status, updated_at = NOW() WHERE id = ?::uuid";
+        jdbcTemplate.update(sql, status, orderId);
     }
 
     public void updatePaymentStatus(String orderId, String paymentStatus) {
-        String sql = "UPDATE orders SET payment_status = ?::payment_status, updated_at = NOW() WHERE id = ?";
-        jdbcTemplate.update(sql, paymentStatus, parseUUID(orderId));
+        String sql = "UPDATE orders SET payment_status = ?::payment_status, updated_at = NOW() WHERE id = ?::uuid";
+        jdbcTemplate.update(sql, paymentStatus, orderId);
     }
 
     public void updateTrackingNumber(String orderId, String trackingNumber) {
-        String sql = "UPDATE orders SET tracking_number = ?, updated_at = NOW() WHERE id = ?";
-        jdbcTemplate.update(sql, trackingNumber, parseUUID(orderId));
+        String sql = "UPDATE orders SET tracking_number = ?, updated_at = NOW() WHERE id = ?::uuid";
+        jdbcTemplate.update(sql, trackingNumber, orderId);
     }
 
     public void cancelOrder(String orderId, String reason) {
-        String sql = "UPDATE orders SET order_status = 'cancelled', cancelled_at = NOW(), cancellation_reason = ?, updated_at = NOW() WHERE id = ?";
-        jdbcTemplate.update(sql, reason, parseUUID(orderId));
+        String sql = "UPDATE orders SET order_status = 'cancelled', cancelled_at = NOW(), cancellation_reason = ?, updated_at = NOW() WHERE id = ?::uuid";
+        jdbcTemplate.update(sql, reason, orderId);
     }
 
     public void updatePaymentReceipt(String orderId, String receiptUrl) {
-        String sql = "UPDATE orders SET payment_receipt_url = ?, payment_receipt_uploaded = true, updated_at = NOW() WHERE id = ?";
-        jdbcTemplate.update(sql, receiptUrl, parseUUID(orderId));
+        String sql = "UPDATE orders SET payment_receipt_url = ?, payment_receipt_uploaded = true, updated_at = NOW() WHERE id = ?::uuid";
+        jdbcTemplate.update(sql, receiptUrl, orderId);
     }
 
     public List<Order> findRecentOrders(int limit) {

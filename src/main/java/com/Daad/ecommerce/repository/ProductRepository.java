@@ -112,7 +112,6 @@ public class ProductRepository {
         }
         
         try {
-            // Make SQL query unique to avoid prepared statement conflicts
             String sql = """
                 SELECT 
                     color, 
@@ -122,10 +121,10 @@ public class ProductRepository {
                     is_available, 
                     min_stock_threshold 
                 FROM product_inventory 
-                WHERE product_id = ?::uuid 
+                WHERE product_id = ?
                 ORDER BY color, "size"
                 """;
-            List<Map<String, Object>> inventoryRows = jdbcTemplate.queryForList(sql, product.getId());
+            List<Map<String, Object>> inventoryRows = jdbcTemplate.queryForList(sql, java.util.UUID.fromString(product.getId()));
         
         Map<String, Product.ColorInventory> colorMap = new HashMap<>();
         
@@ -182,11 +181,11 @@ public class ProductRepository {
                     file_id, 
                     is_primary
                 FROM product_images
-                WHERE product_id = ?::uuid AND color IS NULL
+                WHERE product_id = ? AND color IS NULL
                 ORDER BY is_primary DESC, created_at ASC
                 """;
             
-            List<Map<String, Object>> imageData = jdbcTemplate.queryForList(sql, product.getId());
+            List<Map<String, Object>> imageData = jdbcTemplate.queryForList(sql, java.util.UUID.fromString(product.getId()));
         
         List<Product.Image> defaultImages = new ArrayList<>();
         for (Map<String, Object> row : imageData) {
@@ -236,8 +235,8 @@ public class ProductRepository {
     
     // Method to delete product images
     public void deleteProductImages(String productId) {
-        String sql = "DELETE FROM product_images WHERE product_id = ?::uuid";
-        jdbcTemplate.update(sql, productId);
+        String sql = "DELETE FROM product_images WHERE product_id = ?";
+        jdbcTemplate.update(sql, java.util.UUID.fromString(productId));
     }
     
     // Basic CRUD operations

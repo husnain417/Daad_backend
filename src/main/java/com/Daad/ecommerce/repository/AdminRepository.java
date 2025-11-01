@@ -34,6 +34,26 @@ public class AdminRepository {
         BigDecimal totalRevenue = jdbcTemplate.queryForObject(totalRevenueSql, BigDecimal.class);
         stats.put("totalRevenue", totalRevenue != null ? totalRevenue.doubleValue() : 0.0);
         
+        // Total Commission Earned (sum of commissions from all delivered orders)
+        // Commission = (order_item.price * order_item.quantity) * (vendor.commission / 100)
+        String totalCommissionSql = """
+            SELECT COALESCE(SUM(oi.price * oi.quantity * COALESCE(v.commission, 10.0) / 100.0), 0)
+            FROM orders o
+            INNER JOIN order_items oi ON o.id = oi.order_id
+            INNER JOIN products p ON oi.product_id = p.id
+            LEFT JOIN vendors v ON p.vendor_id = v.id
+            WHERE o.order_status = 'delivered'
+            AND p.vendor_id IS NOT NULL
+            """;
+        BigDecimal totalCommission = jdbcTemplate.queryForObject(totalCommissionSql, BigDecimal.class);
+        double commissionValue = totalCommission != null ? totalCommission.doubleValue() : 0.0;
+        stats.put("totalCommission", commissionValue);
+        
+        // Calculate commission percentage of total revenue
+        double revenueValue = totalRevenue != null ? totalRevenue.doubleValue() : 0.0;
+        double commissionPercentage = revenueValue > 0 ? (commissionValue / revenueValue) * 100.0 : 0.0;
+        stats.put("commissionPercentage", Math.round(commissionPercentage * 100.0) / 100.0);
+        
         // Pending Approvals (vendors + products pending approval)
         String pendingVendorsSql = "SELECT COUNT(*) FROM vendors WHERE status = 'pending'";
         int pendingVendors = jdbcTemplate.queryForObject(pendingVendorsSql, Integer.class);

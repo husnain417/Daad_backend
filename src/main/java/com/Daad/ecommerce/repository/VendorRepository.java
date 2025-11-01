@@ -395,14 +395,14 @@ public class VendorRepository {
     }
     
     public Optional<Vendor> findById(String id) {
-        String sql = "SELECT * FROM vendors WHERE id = ? LIMIT 1";
-        List<Vendor> vendors = jdbcTemplate.query(sql, vendorRowMapper, parseUUID(id));
+        String sql = "SELECT * FROM vendors WHERE id = ?::uuid LIMIT 1";
+        List<Vendor> vendors = jdbcTemplate.query(sql, vendorRowMapper, id);
         return vendors.isEmpty() ? Optional.empty() : Optional.of(vendors.get(0));
     }
 
     public Optional<Vendor> findByUserId(String userId) {
-        String sql = "SELECT * FROM vendors WHERE user_id = ? LIMIT 1";
-        List<Vendor> vendors = jdbcTemplate.query(sql, vendorRowMapper, parseUUID(userId));
+        String sql = "SELECT * FROM vendors WHERE user_id = ?::uuid LIMIT 1";
+        List<Vendor> vendors = jdbcTemplate.query(sql, vendorRowMapper, userId);
         return vendors.isEmpty() ? Optional.empty() : Optional.of(vendors.get(0));
     }
 
