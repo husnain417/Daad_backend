@@ -3,7 +3,6 @@ package com.Daad.ecommerce.service;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.SimpleMailMessage;
-import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
 
 import com.Daad.ecommerce.model.User;
@@ -14,13 +13,13 @@ import java.security.SecureRandom;
 public class EmailService {
 
     @Autowired
-    private JavaMailSender mailSender;
-
-    @Autowired
     private AccountEmailService accountEmailService;
 
     @Value("${spring.mail.username}")
     private String fromEmail;
+
+    @Autowired
+    EmailTemplateService emailTemplateService;
 
     private final SecureRandom random = new SecureRandom();
 
@@ -54,8 +53,7 @@ public class EmailService {
             message.setSubject(subject);
             message.setText(body);
 
-            mailSender.send(message);
-            System.out.println("✅ Email sent successfully to: " + to);
+            emailTemplateService.sendTextEmail(to, subject, body);
         } catch (Exception e) {
             System.err.println("❌ Failed to send email to: " + to);
             System.err.println("Error: " + e.getMessage());

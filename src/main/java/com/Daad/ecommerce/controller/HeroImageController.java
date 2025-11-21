@@ -3,6 +3,7 @@ package com.Daad.ecommerce.controller;
 import com.Daad.ecommerce.dto.HeroImage;
 import com.Daad.ecommerce.repository.HeroImageRepository;
 import com.Daad.ecommerce.service.BackblazeService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -13,6 +14,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/hero-images")
 @CrossOrigin(origins = "*")
@@ -62,6 +64,7 @@ public class HeroImageController {
             ));
             
         } catch (Exception e) {
+            log.error("Error uploading image for pageType: {}, viewType: {}", pageType, viewType, e);
             return ResponseEntity.status(500).body(Map.of(
                 "success", false, 
                 "message", Objects.toString(e.getMessage(), "Error uploading image")
@@ -122,6 +125,7 @@ public class HeroImageController {
             return ResponseEntity.ok(Map.of("success", true, "data", data));
             
         } catch (Exception e) {
+            log.error("Error uploading page images for pageType: {}", pageType, e);
             return ResponseEntity.status(500).body(Map.of(
                 "success", false, 
                 "message", Objects.toString(e.getMessage(), "Error uploading images")
@@ -131,25 +135,52 @@ public class HeroImageController {
 
     @GetMapping("/home")
     public ResponseEntity<?> getHomePageImages() {
+        HeroImage web = heroImageRepository.findOne("home", "web").orElse(null);
+        HeroImage mobile = heroImageRepository.findOne("home", "mobile").orElse(null);
+        if (web == null || mobile == null) {
+            log.warn("Home page images not found in database.");
+            return ResponseEntity.ok(Map.of("success", true, "data", Map.of(
+                "web", null,
+                "mobile", null
+            )));
+        }
         return ResponseEntity.ok(Map.of("success", true, "data", Map.of(
-            "web", heroImageRepository.findOne("home", "web").orElse(null),
-            "mobile", heroImageRepository.findOne("home", "mobile").orElse(null)
+            "web", web,
+            "mobile", mobile
         )));
     }
 
     @GetMapping("/mens")
     public ResponseEntity<?> getMensPageImages() {
+        HeroImage web = heroImageRepository.findOne("mens", "web").orElse(null);
+        HeroImage mobile = heroImageRepository.findOne("mens", "mobile").orElse(null);
+        if (web == null || mobile == null) {
+            log.warn("Mens page images not found in database.");
+            return ResponseEntity.ok(Map.of("success", true, "data", Map.of(
+                "web", null,
+                "mobile", null
+            )));
+        }
         return ResponseEntity.ok(Map.of("success", true, "data", Map.of(
-            "web", heroImageRepository.findOne("mens", "web").orElse(null),
-            "mobile", heroImageRepository.findOne("mens", "mobile").orElse(null)
+            "web", web,
+            "mobile", mobile
         )));
     }
 
     @GetMapping("/womens")
     public ResponseEntity<?> getWomensPageImages() {
+        HeroImage web = heroImageRepository.findOne("womens", "web").orElse(null);
+        HeroImage mobile = heroImageRepository.findOne("womens", "mobile").orElse(null);
+        if (web == null || mobile == null) {
+            log.warn("Womens page images not found in database.");
+            return ResponseEntity.ok(Map.of("success", true, "data", Map.of(
+                "web", null,
+                "mobile", null
+            )));
+        }
         return ResponseEntity.ok(Map.of("success", true, "data", Map.of(
-            "web", heroImageRepository.findOne("womens", "web").orElse(null),
-            "mobile", heroImageRepository.findOne("womens", "mobile").orElse(null)
+            "web", web,
+            "mobile", mobile
         )));
     }
 
@@ -161,13 +192,19 @@ public class HeroImageController {
 
     @GetMapping("/{pageType}")
     public ResponseEntity<?> getImagesByPage(@PathVariable String pageType) {
-        return ResponseEntity.ok(Map.of("success", true, "data", heroImageRepository.findByPageType(pageType)));
+        List<HeroImage> images = heroImageRepository.findByPageType(pageType);
+        if (images.isEmpty()) {
+            log.warn("No images found for pageType: {}", pageType);
+            return ResponseEntity.ok(Map.of("success", true, "data", List.of()));
+        }
+        return ResponseEntity.ok(Map.of("success", true, "data", images));
     }
 
     @DeleteMapping("/{pageType}/{viewType}")
     public ResponseEntity<?> deleteImage(@PathVariable String pageType, @PathVariable String viewType) {
         var existing = heroImageRepository.findOne(pageType, viewType);
         if (existing.isEmpty()) {
+            log.warn("Image not found for pageType: {}, viewType: {}", pageType, viewType);
             return ResponseEntity.status(404).body(Map.of("success", false, "message", "Image not found"));
         }
         

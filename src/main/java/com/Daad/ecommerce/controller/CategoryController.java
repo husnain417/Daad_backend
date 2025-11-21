@@ -3,6 +3,7 @@ package com.Daad.ecommerce.controller;
 import com.Daad.ecommerce.dto.Product;
 import com.Daad.ecommerce.repository.CategoryRepository;
 import com.Daad.ecommerce.repository.ProductRepository;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -11,6 +12,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.*;
 import java.util.stream.Collectors;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/categories")
 @CrossOrigin(origins = "*")
@@ -129,6 +131,7 @@ public class CategoryController {
                 parentId = parentOpt.get().getId();
                 calculatedLevel = (parentOpt.get().getLevel() == null ? 0 : parentOpt.get().getLevel()) + 1;
             } catch (Exception e) {
+                log.error("Error adding category: Invalid parent category id", e);
                 return ResponseEntity.status(400).body(Map.of("success", false, "message", "Invalid parent category id"));
             }
         }
@@ -272,6 +275,7 @@ public class CategoryController {
                     category.setParentCategoryId(newParentId);
                     category.setLevel((parent.get().getLevel() == null ? 0 : parent.get().getLevel()) + 1);
                 } catch (Exception e) {
+                    log.error("Error updating category: Invalid parent category id", e);
                     return ResponseEntity.status(400).body(Map.of("success", false, "message", "Invalid parent category id"));
                 }
             }

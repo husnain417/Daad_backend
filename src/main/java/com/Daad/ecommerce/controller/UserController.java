@@ -22,7 +22,9 @@ import com.Daad.ecommerce.service.LocalUploadService;
 import com.Daad.ecommerce.service.NotificationService;
 
 import java.util.*;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/users")
 public class UserController {
@@ -98,6 +100,7 @@ public class UserController {
             vendorInfo.put("phoneNumber", vendor.getPhoneNumber());
             vendorInfo.put("commission", vendor.getCommission());
             vendorInfo.put("ratingAverage", vendor.getRating());
+            vendorInfo.put("websiteSyncUrl", vendor.getWebsiteSyncUrl());
             if (vendor.getBusinessAddress() != null) {
                 Map<String, Object> addr = new LinkedHashMap<>();
                 addr.put("line1", vendor.getBusinessAddress().getAddressLine1());
@@ -116,6 +119,7 @@ public class UserController {
                     "bankDetails", bankDetails
             ));
         } catch (Exception e) {
+            log.error("Error fetching vendor details: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                     "success", false,
                     "message", "Error fetching vendor details: " + e.getMessage()
@@ -144,11 +148,13 @@ public class UserController {
             if (body.containsKey("phoneNumber")) vendor.setPhoneNumber(Objects.toString(body.get("phoneNumber"), vendor.getPhoneNumber()));
             if (body.containsKey("description")) vendor.setDescription(Objects.toString(body.get("description"), vendor.getDescription()));
             if (body.containsKey("logo")) vendor.setLogo(Objects.toString(body.get("logo"), vendor.getLogo()));
+            if (body.containsKey("websiteSyncUrl")) vendor.setWebsiteSyncUrl(Objects.toString(body.get("websiteSyncUrl"), vendor.getWebsiteSyncUrl()));
 
             vendorRepository.save(vendor);
 
             return ResponseEntity.ok(Map.of("success", true, "message", "Vendor profile updated successfully"));
         } catch (Exception e) {
+            log.error("Failed to update vendor profile: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("success", false, "message", Objects.toString(e.getMessage(), "Failed to update profile")));
         }
     }
@@ -181,6 +187,7 @@ public class UserController {
 
             return ResponseEntity.ok(Map.of("success", true, "message", "Business address updated successfully"));
         } catch (Exception e) {
+            log.error("Failed to update vendor address: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("success", false, "message", Objects.toString(e.getMessage(), "Failed to update address")));
         }
     }
@@ -215,6 +222,7 @@ public class UserController {
 
             return ResponseEntity.ok(Map.of("success", true, "message", "Bank details updated successfully", "bankDetails", bank));
         } catch (Exception e) {
+            log.error("Failed to update vendor bank details: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("success", false, "message", Objects.toString(e.getMessage(), "Failed to update bank details")));
         }
     }
@@ -283,6 +291,7 @@ public class UserController {
                     "bankDetails", bankDetails
             ));
         } catch (Exception e) {
+            log.error("Error fetching vendor details: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                     "success", false,
                     "message", "Error fetching vendor details: " + e.getMessage()
@@ -334,7 +343,7 @@ public class UserController {
                         throw new RuntimeException("Invalid Google ID token");
                     }
                 } catch (Exception e) {
-                    System.err.println("Google token verification failed: " + e.getMessage());
+                    log.error("Google token verification failed: {}", e.getMessage());
                     return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
                         "success", false,
                         "message", "Invalid Google token: " + e.getMessage()
@@ -342,7 +351,7 @@ public class UserController {
                 }
             } else {
                 // Fallback to mock implementation when Google client ID is not configured
-                System.out.println("Google client ID not configured, using mock implementation");
+                log.warn("Google client ID not configured, using mock implementation");
                 email = "user" + System.currentTimeMillis() + "@example.com";
                 name = "google_user";
                 googleId = UUID.randomUUID().toString();
@@ -418,6 +427,7 @@ public class UserController {
                     "token", accessToken
             ));
         } catch (Exception ex) {
+            log.error("Invalid Google token: {}", ex.getMessage());
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
                     "success", false,
                     "message", "Invalid Google token"
@@ -503,10 +513,10 @@ public class UserController {
                 try {
                     notificationService.notifyVendorRegistration(vendor);
                 } catch (Exception e) {
-                    System.err.println("Failed to send vendor registration notifications: " + e.getMessage());
+                    log.error("Failed to send vendor registration notifications: {}", e.getMessage());
                 }
             } catch (Exception ex) {
-                ex.printStackTrace();
+                log.error("Failed to create vendor profile: {}", ex.getMessage());
                 userRepository.deleteById(user.getId());
                 return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                         "message", "Failed to create vendor profile. Please try again.",
@@ -524,7 +534,7 @@ public class UserController {
             try {
                 notificationService.notifyUserRegistration(user);
             } catch (Exception e) {
-                System.err.println("Failed to send welcome email: " + e.getMessage());
+                log.error("Failed to send welcome email: {}", e.getMessage());
                 // Don't fail registration if email fails
             }
         }
@@ -673,6 +683,7 @@ public class UserController {
                     )
             ));
         } catch (Exception ex) {
+            log.error("Failed to upload profile picture: {}", ex.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("message", "Server error"));
         }
     }
@@ -771,18 +782,18 @@ public class UserController {
     @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
     @GetMapping("/vendors")
     public ResponseEntity<?> getAllVendors(@RequestParam(required = false) String status) {
-        System.out.println("getAllVendors called with status: " + status);
+        log.info("getAllVendors called with status: {}", status);
         List<Vendor> vendors;
         if (status != null && !status.trim().isEmpty()) {
             // Filter by status
-            System.out.println("Calling findByStatus with: " + status);
+            log.info("Calling findByStatus with: {}", status);
             vendors = vendorRepository.findByStatus(status);
         } else {
             // Get all vendors
-            System.out.println("Calling findAllByOrderByCreatedAtDesc");
+            log.info("Calling findAllByOrderByCreatedAtDesc");
             vendors = vendorRepository.findAllByOrderByCreatedAtDesc();
         }
-        
+
         List<Map<String, Object>> transformed = new ArrayList<>();
         for (Vendor vendor : vendors) {
             Map<String, Object> v = new LinkedHashMap<>();
@@ -880,18 +891,18 @@ public class UserController {
             String reason = isApproved ? "Your application has been approved" : "Your application has been rejected";
             
             // Debug: Check if vendor has user details
-            System.out.println("Sending vendor approval notification for vendor: " + v.getId());
+            log.info("Sending vendor approval notification for vendor: {}", v.getId());
             if (v.getUser() != null) {
-                System.out.println("Vendor user ID: " + v.getUser().getId());
-                System.out.println("Vendor user email: " + v.getUser().getEmail());
-                System.out.println("Vendor user username: " + v.getUser().getUsername());
+                log.info("Vendor user ID: {}", v.getUser().getId());
+                log.info("Vendor user email: {}", v.getUser().getEmail());
+                log.info("Vendor user username: {}", v.getUser().getUsername());
             } else {
-                System.out.println("Vendor has no user details!");
+                log.warn("Vendor has no user details!");
             }
             
             notificationService.notifyVendorApproval(v, isApproved, reason);
         } catch (Exception e) {
-            System.err.println("Failed to send vendor approval notifications: " + e.getMessage());
+            log.error("Failed to send vendor approval notifications: {}", e.getMessage());
             e.printStackTrace();
         }
         

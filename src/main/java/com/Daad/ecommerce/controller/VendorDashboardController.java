@@ -11,6 +11,7 @@ import com.Daad.ecommerce.repository.ReviewRepository;
 import com.Daad.ecommerce.repository.UserRepository;
 import com.Daad.ecommerce.repository.VendorRepository;
 import com.Daad.ecommerce.security.SecurityUtils;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -22,6 +23,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/vendor-dashboard")
 @CrossOrigin(origins = "*")
@@ -36,10 +38,12 @@ public class VendorDashboardController {
 
     private String getCurrentVendorId() {
         try {
+            log.info("Getting current vendor ID");
             String userId = SecurityUtils.currentUserId();
             System.out.println("VendorDashboardController: Current user ID: " + userId);
             
             if (userId == null || userId.isEmpty()) {
+                log.error("No authenticated user found");
                 throw new RuntimeException("No authenticated user found");
             }
             
@@ -54,14 +58,16 @@ public class VendorDashboardController {
                         break;
                     }
                 } catch (Exception e) {
-                    System.err.println("Error getting user (attempt " + (i + 1) + "): " + e.getMessage());
+                    log.error("Error getting user (attempt " + (i + 1) + "): " + e.getMessage());
                     if (i == maxRetries - 1) {
+                        log.error("User not found after retries: " + e.getMessage());
                         throw new RuntimeException("User not found after retries: " + e.getMessage());
                     }
                     // Wait before retry
                     try {
                         Thread.sleep(1000);
                     } catch (InterruptedException ie) {
+                        log.error("Interrupted during retry: " + ie.getMessage());
                         Thread.currentThread().interrupt();
                         throw new RuntimeException("Interrupted during retry", ie);
                     }
@@ -110,8 +116,7 @@ public class VendorDashboardController {
             System.out.println("VendorDashboardController: Vendor ID: " + vendorId);
             return vendorId;
         } catch (Exception e) {
-            System.err.println("Error getting vendor ID: " + e.getMessage());
-            e.printStackTrace();
+            log.error("Error getting vendor ID: " + e.getMessage(), e);
             throw new RuntimeException("Error getting vendor ID: " + e.getMessage(), e);
         }
     }
@@ -209,8 +214,7 @@ public class VendorDashboardController {
         return ResponseEntity.ok(resp);
         
         } catch (Exception e) {
-            System.err.println("Error in getDashboardOverview: " + e.getMessage());
-            e.printStackTrace();
+            log.error("Error in getDashboardOverview: " + e.getMessage(), e);
             return ResponseEntity.status(500).body(Map.of(
                 "success", false,
                 "message", "Error fetching dashboard overview: " + e.getMessage()
@@ -406,8 +410,7 @@ public class VendorDashboardController {
             return ResponseEntity.ok(Map.of("success", true, "data", stats));
             
         } catch (Exception e) {
-            System.err.println("Error in getVendorOverviewStats: " + e.getMessage());
-            e.printStackTrace();
+            log.error("Error in getVendorOverviewStats: " + e.getMessage(), e);
             
             // Return default values instead of error to prevent frontend crashes
             return ResponseEntity.ok(Map.of(
@@ -442,8 +445,7 @@ public class VendorDashboardController {
             ));
             
         } catch (Exception e) {
-            System.err.println("Error in getRecentOrders: " + e.getMessage());
-            e.printStackTrace();
+            log.error("Error in getRecentOrders: " + e.getMessage(), e);
             
             // Return empty list instead of error to prevent frontend crashes
             return ResponseEntity.ok(Map.of(
@@ -470,8 +472,7 @@ public class VendorDashboardController {
             ));
             
         } catch (Exception e) {
-            System.err.println("Error in getRecentProducts: " + e.getMessage());
-            e.printStackTrace();
+            log.error("Error in getRecentProducts: " + e.getMessage(), e);
             
             // Return empty list instead of error to prevent frontend crashes
             return ResponseEntity.ok(Map.of(
@@ -501,8 +502,7 @@ public class VendorDashboardController {
             ));
             
         } catch (Exception e) {
-            System.err.println("Error in getAllProducts: " + e.getMessage());
-            e.printStackTrace();
+            log.error("Error in getAllProducts: " + e.getMessage(), e);
             
             // Return empty list instead of error to prevent frontend crashes
             return ResponseEntity.ok(Map.of(
@@ -545,8 +545,7 @@ public class VendorDashboardController {
             ));
             
         } catch (Exception e) {
-            System.err.println("Error in getFilteredOrders: " + e.getMessage());
-            e.printStackTrace();
+            log.error("Error in getFilteredOrders: " + e.getMessage(), e);
             
             return ResponseEntity.status(500).body(Map.of(
                 "success", false,
@@ -585,8 +584,7 @@ public class VendorDashboardController {
             ));
             
         } catch (Exception e) {
-            System.err.println("Error in getFilteredProducts: " + e.getMessage());
-            e.printStackTrace();
+            log.error("Error in getFilteredProducts: " + e.getMessage(), e);
             
             return ResponseEntity.status(500).body(Map.of(
                 "success", false,
@@ -636,8 +634,7 @@ public class VendorDashboardController {
         return ResponseEntity.ok(Map.of("success", true, "data", data));
         
         } catch (Exception e) {
-            System.err.println("Error in getFinancialSummary: " + e.getMessage());
-            e.printStackTrace();
+            log.error("Error in getFinancialSummary: " + e.getMessage(), e);
             return ResponseEntity.status(500).body(Map.of(
                 "success", false,
                 "message", "Error fetching financial summary: " + e.getMessage()

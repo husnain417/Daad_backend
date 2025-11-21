@@ -25,6 +25,7 @@ public class Product {
     private Boolean isCustomersAlsoBought = false;
     private String createdAt;
     private String updatedAt;
+    private String referenceId;
     
     // Approval details
     private ApprovalDetails approvalDetails;
@@ -114,6 +115,9 @@ public class Product {
     
     public String getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(String updatedAt) { this.updatedAt = updatedAt; }
+
+    public String getReferenceId() { return referenceId; }
+    public void setReferenceId(String referenceId) { this.referenceId = referenceId; }
     
     public ApprovalDetails getApprovalDetails() { return approvalDetails; }
     public void setApprovalDetails(ApprovalDetails approvalDetails) { this.approvalDetails = approvalDetails; }

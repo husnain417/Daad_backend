@@ -2,6 +2,7 @@ package com.Daad.ecommerce.controller;
 
 import com.Daad.ecommerce.repository.VendorPayoutRepository;
 import com.Daad.ecommerce.service.PayoutService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -10,6 +11,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/payouts")
 @CrossOrigin(origins = "*")
+@Slf4j
 public class PayoutWebhookController {
 
     private final VendorPayoutRepository vendorPayoutRepository;
@@ -25,6 +27,7 @@ public class PayoutWebhookController {
                                                        @RequestBody Map<String, Object> payload) {
         try {
             if (!payoutService.verifyPayoutWebhookSignature(payload, signature)) {
+                log.error("Payout webhook verification failed: invalid signature");
                 return ResponseEntity.status(401).body(Map.of("success", false, "message", "invalid signature"));
             }
 
@@ -55,6 +58,7 @@ public class PayoutWebhookController {
 
             return ResponseEntity.ok(Map.of("success", true));
         } catch (Exception e) {
+            log.error("Payout webhook processing error", e);
             return ResponseEntity.ok(Map.of("success", false, "message", e.getMessage()));
         }
     }

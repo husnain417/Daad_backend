@@ -6,6 +6,7 @@ import com.Daad.ecommerce.repository.*;
 import com.Daad.ecommerce.service.NotificationService;
 import com.Daad.ecommerce.repository.UserRepository;
 import com.Daad.ecommerce.service.BackblazeService;
+import com.Daad.ecommerce.service.ProductService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -23,8 +24,10 @@ import java.util.*;
 import java.util.stream.Collectors;
 import com.Daad.ecommerce.model.Vendor;
 import org.springframework.http.HttpStatus;
+import lombok.extern.slf4j.Slf4j;
 
 
+@Slf4j
 @RestController
 @RequestMapping("/api/products")
 @CrossOrigin(origins = "*")
@@ -49,7 +52,9 @@ public class ProductController {
     private UserRepository userRepository;
     
     private final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-    
+    @Autowired
+    private ProductService productService;
+
     // Get all products with filtering
     @GetMapping("/")
     public ResponseEntity<Map<String, Object>> getAllProducts(
@@ -407,6 +412,7 @@ public class ProductController {
             return ResponseEntity.ok(response);
             
         } catch (Exception e) {
+            log.error("Error in getAllProducts: {}", e.getMessage(), e);
             Map<String, Object> response = new HashMap<>();
             response.put("success", false);
             response.put("data", new ArrayList<>());
@@ -436,11 +442,26 @@ public class ProductController {
             return ResponseEntity.ok(response);
             
         } catch (Exception e) {
+            log.error("Error in getProduct: {}", e.getMessage(), e);
             Map<String, Object> errorResponse = new HashMap<>();
             errorResponse.put("success", false);
             errorResponse.put("message", "Error retrieving product");
             return ResponseEntity.status(500).body(errorResponse);
         }
+    }
+
+    //sync products
+    @PostMapping("/sync")
+    @PreAuthorize("hasRole('VENDOR')")
+    public ResponseEntity<List<Product>> syncProducts(Authentication authentication) {
+        try{
+            String userId = authentication.getName();
+            var products = productService.syncProductsFromVendorWebsite(userId);
+            return ResponseEntity.ok(products);
+        } catch (Exception e){
+            log.error("Error in syncProducts: {}", e.getMessage(), e);
+        }
+        return ResponseEntity.ok(new ArrayList<>());
     }
     
     // Create product
@@ -551,6 +572,7 @@ public class ProductController {
                 if (productCategory != null) {
                     product.setCategory(productCategory);
                 } else {
+                    log.error("Category not found: {}{}", request.getCategory(), (request.getSubcategory() != null ? " with subcategory: " + request.getSubcategory() : ""));
                     return ResponseEntity.badRequest().body(Map.of(
                         "success", false,
                         "message", "Category not found: " + request.getCategory() + 
@@ -599,6 +621,7 @@ public class ProductController {
             ));
             
         } catch (Exception e) {
+            log.error("Error in createProduct: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                 "success", false,
                 "message", "Error creating product: " + e.getMessage()
@@ -622,6 +645,7 @@ public class ProductController {
                     "data", items
             ));
         } catch (Exception e) {
+            log.error("Error in getOtherProductsFromVendor: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                     "success", false,
                     "message", "Error fetching products by vendor: " + e.getMessage()
@@ -664,6 +688,7 @@ public class ProductController {
     ) {
         try {
             if (images == null || images.length == 0) {
+                log.error("No files uploaded");
                 return ResponseEntity.badRequest().body(Map.of(
                         "success", false,
                         "message", "No files uploaded"
@@ -717,6 +742,7 @@ public class ProductController {
             ));
             
         } catch (Exception e) {
+            log.error("Error in uploadDefaultImage: {}", e.getMessage(), e);
             return ResponseEntity.status(500).body(Map.of(
                     "success", false,
                     "message", "Failed to upload images",
@@ -761,6 +787,7 @@ public class ProductController {
             return ResponseEntity.ok(response);
             
         } catch (Exception e) {
+            log.error("Error in getPendingApprovalProducts: {}", e.getMessage(), e);
             Map<String, Object> errorResponse = new HashMap<>();
             errorResponse.put("success", false);
             errorResponse.put("message", "Error retrieving pending approval products: " + e.getMessage());
@@ -841,6 +868,7 @@ public class ProductController {
             return ResponseEntity.ok(response);
             
         } catch (Exception e) {
+            log.error("Error in updateProductApproval: {}", e.getMessage(), e);
             Map<String, Object> errorResponse = new HashMap<>();
             errorResponse.put("success", false);
             errorResponse.put("message", "Error updating product approval: " + e.getMessage());
@@ -902,6 +930,7 @@ public class ProductController {
             ));
             
         } catch (Exception e) {
+            log.error("Error in addColorToProduct: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                 "success", false,
                 "message", "Error adding color: " + e.getMessage()
@@ -934,6 +963,7 @@ public class ProductController {
             ));
             
         } catch (Exception e) {
+            log.error("Error in addSizeToColor: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                 "success", false,
                 "message", "Error adding size: " + e.getMessage()
@@ -973,6 +1003,7 @@ public class ProductController {
             ));
             
         } catch (Exception e) {
+            log.error("Error in updateStock: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                 "success", false,
                 "message", "Error updating stock: " + e.getMessage()
@@ -996,6 +1027,7 @@ public class ProductController {
             ));
             
         } catch (Exception e) {
+            log.error("Error in getInventorySummary: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                 "success", false,
                 "message", "Error getting inventory summary: " + e.getMessage()
@@ -1019,6 +1051,7 @@ public class ProductController {
                 "data", products
             ));
         } catch (Exception e) {
+            log.error("Error in getCustomersAlsoBoughtProducts: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                 "success", false,
                 "message", "Error fetching COB products: " + e.getMessage()
@@ -1058,6 +1091,7 @@ public class ProductController {
                 "data", products
             ));
         } catch (Exception e) {
+            log.error("Error in getVendorCOBProducts: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                 "success", false,
                 "message", "Error fetching vendor COB products: " + e.getMessage()
@@ -1079,6 +1113,7 @@ public class ProductController {
                 "data", products
             ));
         } catch (Exception e) {
+            log.error("Error in getCOBForProduct: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                 "success", false,
                 "message", "Error fetching COB for product: " + e.getMessage()
@@ -1141,6 +1176,7 @@ public class ProductController {
                 ));
             }
         } catch (Exception e) {
+            log.error("Error in addToCustomersAlsoBought: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                 "success", false,
                 "message", "Error updating product status: " + e.getMessage()
@@ -1203,6 +1239,7 @@ public class ProductController {
                 ));
             }
         } catch (Exception e) {
+            log.error("Error in removeFromCustomersAlsoBought: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                 "success", false,
                 "message", "Error updating product status: " + e.getMessage()
@@ -1337,6 +1374,7 @@ public class ProductController {
                 ));
             }
         } catch (Exception e) {
+            log.error("Error in updateProduct: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                 "success", false,
                 "message", "Error updating product: " + e.getMessage()
@@ -1388,6 +1426,7 @@ public class ProductController {
                 ));
             }
         } catch (Exception e) {
+            log.error("Error in deleteProduct: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                 "success", false,
                 "message", "Error deleting product: " + e.getMessage()
@@ -1407,6 +1446,7 @@ public class ProductController {
                 "stats", stats
             ));
         } catch (Exception e) {
+            log.error("Error in getProductStats: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                 "success", false,
                 "message", "Error fetching product stats: " + e.getMessage()
@@ -1441,6 +1481,7 @@ public class ProductController {
                 ));
             }
         } catch (Exception e) {
+            log.error("Error in fixStock: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                 "success", false,
                 "message", "Error fixing stock: " + e.getMessage()
@@ -1486,6 +1527,7 @@ public class ProductController {
                 ));
             }
         } catch (Exception e) {
+            log.error("Error in getProductsByVendor: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                 "success", false,
                 "message", "Error fetching products by vendor: " + e.getMessage()
@@ -1513,6 +1555,7 @@ public class ProductController {
                 "data", brands
             ));
         } catch (Exception e) {
+            log.error("Error in getAllBrands: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                 "success", false,
                 "message", "Error fetching brands: " + e.getMessage()
@@ -1557,6 +1600,7 @@ public class ProductController {
                 "data", products
             ));
         } catch (Exception e) {
+            log.error("Error in getAllProductsByVendor: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                 "success", false,
                 "message", "Error fetching all products by vendor: " + e.getMessage()
@@ -1596,6 +1640,7 @@ public class ProductController {
                 ));
             }
         } catch (Exception e) {
+            log.error("Error in updateApprovalDetails: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                 "success", false,
                 "message", "Error updating approval details: " + e.getMessage()
@@ -1650,6 +1695,7 @@ public class ProductController {
             ));
             
         } catch (Exception e) {
+            log.error("Error in searchAll: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                 "success", false,
                 "message", "Search failed: " + e.getMessage()
@@ -1697,6 +1743,7 @@ public class ProductController {
             ));
             
         } catch (Exception e) {
+            log.error("Error in getSearchSuggestions: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                 "success", false,
                 "message", "Search suggestions failed: " + e.getMessage()

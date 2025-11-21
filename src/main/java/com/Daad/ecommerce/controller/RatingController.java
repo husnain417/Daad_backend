@@ -25,7 +25,7 @@ public class RatingController {
 
     // Create a new rating/review (customers only)
     @PostMapping("/")
-    @PreAuthorize("hasRole('CUSTOMER')")
+    @PreAuthorize("isAuthenticated()")
 	public ResponseEntity<Map<String, Object>> createRating(@RequestBody Map<String, Object> body) {
 		String customerId = SecurityUtils.currentUserId();
 		Object productIdObj = body.get("productId");

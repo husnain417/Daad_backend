@@ -12,7 +12,9 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/delivery")
 @CrossOrigin(origins = "*")
@@ -33,6 +35,7 @@ public class DeliveryController {
             Map<String, Object> result = deliveryService.getDeliveryTracking(fincartOrderId);
             return ResponseEntity.ok(result);
         } catch (Exception e) {
+            log.error("Error tracking delivery for order ID: {}", fincartOrderId, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(Map.of("success", false, "error", e.getMessage()));
         }
@@ -47,6 +50,7 @@ public class DeliveryController {
             List<Map<String, Object>> deliveries = deliveryService.getOrderDeliveries(orderId);
             return ResponseEntity.ok(deliveries);
         } catch (Exception e) {
+            log.error("Error getting deliveries for order ID: {}", orderId, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(List.of());
         }
     }
@@ -61,6 +65,7 @@ public class DeliveryController {
             Map<String, Object> result = deliveryService.cancelDelivery(fincartOrderId);
             return ResponseEntity.ok(result);
         } catch (Exception e) {
+            log.error("Error canceling delivery for order ID: {}", fincartOrderId, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(Map.of("success", false, "error", e.getMessage()));
         }
@@ -88,6 +93,7 @@ public class DeliveryController {
                 .body(labels);
                 
         } catch (Exception e) {
+            log.error("Error generating labels for orders: {}", request.get("order_ids"), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(null);
         }
     }
@@ -113,6 +119,7 @@ public class DeliveryController {
                 .body(manifest);
                 
         } catch (Exception e) {
+            log.error("Error generating manifest for orders: {}", request.get("order_ids"), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(null);
         }
     }
@@ -140,6 +147,7 @@ public class DeliveryController {
             
             return ResponseEntity.ok(deliveries);
         } catch (Exception e) {
+            log.error("Error getting all deliveries with filters: status={}, vendorId={}", status, vendorId, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(List.of());
         }
     }
@@ -168,6 +176,7 @@ public class DeliveryController {
             
             return ResponseEntity.ok(stats);
         } catch (Exception e) {
+            log.error("Error getting delivery statistics", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(Map.of("error", e.getMessage()));
         }
@@ -183,6 +192,7 @@ public class DeliveryController {
             deliveryService.syncPickupLocations();
             return ResponseEntity.ok(Map.of("success", true, "message", "Pickup locations synced"));
         } catch (Exception e) {
+            log.error("Error syncing pickup locations", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(Map.of("success", false, "error", e.getMessage()));
         }
@@ -198,6 +208,7 @@ public class DeliveryController {
             deliveryService.syncDeliveryAreas();
             return ResponseEntity.ok(Map.of("success", true, "message", "Delivery areas synced"));
         } catch (Exception e) {
+            log.error("Error syncing delivery areas", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(Map.of("success", false, "error", e.getMessage()));
         }
@@ -218,6 +229,7 @@ public class DeliveryController {
             }
             return ResponseEntity.ok(areas);
         } catch (Exception e) {
+            log.error("Error getting delivery areas for city: {}", city, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(List.of());
         }
     }
@@ -231,6 +243,7 @@ public class DeliveryController {
             List<Map<String, Object>> locations = deliveryRepository.getAllPickupLocations();
             return ResponseEntity.ok(locations);
         } catch (Exception e) {
+            log.error("Error getting pickup locations", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(List.of());
         }
     }

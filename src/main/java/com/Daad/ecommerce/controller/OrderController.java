@@ -13,6 +13,7 @@ import com.Daad.ecommerce.security.SecurityUtils;
 import com.Daad.ecommerce.service.LocalUploadService;
 import com.Daad.ecommerce.service.PaymentService;
 import com.Daad.ecommerce.service.NotificationService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -25,6 +26,7 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/api/orders")
 @CrossOrigin(origins = "*")
+@Slf4j
 public class OrderController {
 
 	@Autowired private OrderRepository orderRepository;
@@ -318,10 +320,12 @@ public class OrderController {
                     try {
                         vendorPayoutRepository.insertPayout(vId, saved.getId(), gross, commission, net, scheduledFor, bank);
                     } catch (Exception e) {
+                        log.error("Failed to persist vendor payouts: {}", e.getMessage());
                         System.err.println("Failed to insert vendor payout: " + e.getMessage());
                     }
                 }
             } catch (Exception e) {
+                log.error("Failed to persist vendor payouts: {}", e.getMessage());
                 System.err.println("Vendor payouts scheduling failed: " + e.getMessage());
             }
 
@@ -346,6 +350,7 @@ public class OrderController {
 					System.out.println("Warning: No email address provided for order notification. Order ID: " + saved.getId());
 				}
 			} catch (Exception e) {
+                log.error("Failed to send order notification: {}", e.getMessage());
 				System.err.println("Failed to send order notification: " + e.getMessage());
 			}
 
@@ -353,6 +358,7 @@ public class OrderController {
 			try {
 				createDeliveryOrders(saved, orderData);
 			} catch (Exception e) {
+                log.error("Failed to create delivery orders: {}", e.getMessage());
 				System.err.println("Failed to create delivery orders: " + e.getMessage());
 			}
 
@@ -385,6 +391,7 @@ public class OrderController {
 			}
 
 		} catch (Exception e) {
+            log.error("Failed to create order: {}", e.getMessage());
 			return ResponseEntity.status(500).body(Map.of("success", false, "message", "Failed to create order", "error", e.getMessage()));
 		}
 	}
@@ -510,41 +517,41 @@ public class OrderController {
 				return ResponseEntity.status(400).body(Map.of("success", false, "message", "Cannot cancel order that is already shipped or delivered"));
 			}
 
-			String reason = cancelRequest != null ? cancelRequest.getReason() : "Customer requested cancellation";
-			String paymentStatus = order.getPaymentStatus() != null ? order.getPaymentStatus().toLowerCase() : "pending";
-			
-			// Handle unpaid orders (pending, failed) - simple cancellation without refund
-			if (!"paid".equalsIgnoreCase(paymentStatus) && !"completed".equalsIgnoreCase(paymentStatus)) {
-				// Check if already refunded/voided (shouldn't happen for unpaid, but check anyway)
-				if ("refunded".equalsIgnoreCase(paymentStatus) || "voided".equalsIgnoreCase(paymentStatus)) {
-					return ResponseEntity.status(400).body(Map.of("success", false, "message", "Order already refunded/voided"));
-				}
-				
-				// Simple cancellation for unpaid orders
-				orderRepository.cancelOrder(orderId, reason);
-				
-				// Auto-cancel any pending vendor payouts for this order
-				try {
-					vendorPayoutRepository.cancelPendingByOrderId(orderId, reason);
-				} catch (Exception ignore) {}
-				
-				return ResponseEntity.ok(Map.of(
-					"success", true,
-					"message", "Order cancelled successfully (no payment to refund)",
-					"orderId", orderId,
-					"orderStatus", "cancelled",
-					"refundType", "NONE",
-					"note", "Order was unpaid, no refund required"
-				));
-			}
+            String reason = cancelRequest != null ? cancelRequest.getReason() : "Customer requested cancellation";
+            String paymentStatus = order.getPaymentStatus() != null ? order.getPaymentStatus().toLowerCase() : "pending";
+            // Handle unpaid orders (pending, failed) - simple cancellation without refund
+            if (!"paid".equalsIgnoreCase(paymentStatus) && !"completed".equalsIgnoreCase(paymentStatus)) {
+                // Check if already refunded/voided (shouldn't happen for unpaid, but check anyway)
+                if ("refunded".equalsIgnoreCase(paymentStatus) || "voided".equalsIgnoreCase(paymentStatus)) {
+                    return ResponseEntity.status(400).body(Map.of("success", false, "message", "Order already refunded/voided"));
+                }
 
-			// Handle paid orders - requires refund/void processing
+                // Simple cancellation for unpaid orders
+                orderRepository.cancelOrder(orderId, reason);
+
+                // Auto-cancel any pending vendor payouts for this order
+                try {
+                    vendorPayoutRepository.cancelPendingByOrderId(orderId, reason);
+                } catch (Exception ignore) {}
+
+                return ResponseEntity.ok(Map.of(
+                        "success", true,
+                        "message", "Order cancelled successfully (no payment to refund)",
+                        "orderId", orderId,
+                        "orderStatus", "cancelled",
+                        "refundType", "NONE",
+                        "note", "Order was unpaid, no refund required"
+                ));
+            }
+
+            // Handle paid orders - requires refund/void processing
+
 			// Check if already refunded/voided
-			if ("refunded".equalsIgnoreCase(paymentStatus) || "voided".equalsIgnoreCase(paymentStatus)) {
+            if ("refunded".equalsIgnoreCase(paymentStatus) || "voided".equalsIgnoreCase(paymentStatus)) {
 				return ResponseEntity.status(400).body(Map.of("success", false, "message", "Order already refunded/voided"));
 			}
 
-			String decision;
+    			String decision;
 			Object paymentResult;
 			
 			try {
@@ -564,8 +571,8 @@ public class OrderController {
             vendorPayoutRepository.cancelPendingByOrderId(orderId, reason);
         } catch (Exception ignore) {}
 
-			// Update order status to cancelled (including cancellation timestamp and reason)
-			orderRepository.cancelOrder(orderId, reason);
+            // Update order status to cancelled (including cancellation timestamp and reason)
+            orderRepository.cancelOrder(orderId, reason);
 
 			com.Daad.ecommerce.dto.PaymentDtos.CancellationResponse response = new com.Daad.ecommerce.dto.PaymentDtos.CancellationResponse();
 			response.setSuccess(true);

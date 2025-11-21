@@ -753,8 +753,10 @@ public class OrderRepository {
             if (vendorUuid == null) {
                 return new ArrayList<>();
             }
-            
+
             // Optimized: Use INNER JOIN with DISTINCT to get orders efficiently
+            
+            // First try the efficient query
             String sql = """
                 SELECT DISTINCT
                     o.id,
@@ -800,16 +802,16 @@ public class OrderRepository {
                 ORDER BY o.created_at DESC
                 LIMIT ?
                 """;
-            
+
             List<Order> orders = jdbcTemplate.query(sql, orderRowMapper, vendorUuid, limit);
             
             if (orders.isEmpty()) {
                 return new ArrayList<>();
             }
-            
+
             // Batch load all order items for all orders in ONE query (much faster than N queries)
             loadOrderItemsBatch(orders, vendorId);
-            
+
             return orders;
         } catch (Exception e) {
             System.err.println("Error finding recent orders by vendor ID: " + vendorId + ", Error: " + e.getMessage());
@@ -817,53 +819,51 @@ public class OrderRepository {
             return new ArrayList<>();
         }
     }
-    
-    // Optimized: Load order items for multiple orders in a single batch query
     private void loadOrderItemsBatch(List<Order> orders, String vendorId) {
         if (orders == null || orders.isEmpty()) {
             return;
         }
-        
+
         try {
             // Extract order IDs as UUIDs
             List<UUID> orderIds = orders.stream()
                     .map(o -> parseUUID(o.getId()))
                     .filter(Objects::nonNull)
                     .collect(Collectors.toList());
-            
+
             if (orderIds.isEmpty()) {
                 return;
             }
-            
+
             UUID vendorUuid = parseUUID(vendorId);
-            
+
             // Build IN clause with placeholders for better compatibility
             String placeholders = String.join(",", Collections.nCopies(orderIds.size(), "?"));
-            
+
             // Single query to load all items for all orders, filtered by vendor
             String sql = String.format("""
-                SELECT 
-                    oi.order_id,
-                    oi.product_id, 
-                    p.vendor_id, 
-                    oi.product_name, 
-                    oi.color, 
-                    oi.size, 
-                    oi.quantity, 
-                    oi.price
-                FROM order_items oi
-                LEFT JOIN products p ON p.id = oi.product_id
-                WHERE oi.order_id IN (%s)
-                AND p.vendor_id = ?
-                ORDER BY oi.order_id, oi.product_name
-                """, placeholders);
-            
+                    SELECT 
+                        oi.order_id,
+                        oi.product_id, 
+                        p.vendor_id, 
+                        oi.product_name, 
+                        oi.color, 
+                        oi.size, 
+                        oi.quantity, 
+                        oi.price
+                    FROM order_items oi
+                    LEFT JOIN products p ON p.id = oi.product_id
+                    WHERE oi.order_id IN (%s)
+                    AND p.vendor_id = ?
+                    ORDER BY oi.order_id, oi.product_name
+                    """, placeholders);
+
             // Prepare parameters: order IDs + vendor UUID
             List<Object> params = new ArrayList<>(orderIds);
             params.add(vendorUuid);
-            
+
             Map<String, List<Order.Item>> itemsByOrderId = new HashMap<>();
-            
+
             // Use varargs instead of array to avoid deprecation warning
             jdbcTemplate.query(sql, params.toArray(new Object[0]), (rs, rowNum) -> {
                 String orderId = rs.getString("order_id");
@@ -875,11 +875,11 @@ public class OrderRepository {
                 item.setSize(rs.getString("size"));
                 item.setQuantity(rs.getInt("quantity"));
                 item.setPrice(rs.getDouble("price"));
-                
+
                 itemsByOrderId.computeIfAbsent(orderId, k -> new ArrayList<>()).add(item);
                 return null; // We're just using this to populate the map
             });
-            
+
             // Assign items to their respective orders
             for (Order order : orders) {
                 List<Order.Item> items = itemsByOrderId.getOrDefault(order.getId(), new ArrayList<>());

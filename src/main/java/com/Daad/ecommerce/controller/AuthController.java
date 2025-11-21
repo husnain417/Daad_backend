@@ -6,6 +6,7 @@ import com.Daad.ecommerce.model.Vendor;
 import com.Daad.ecommerce.repository.UserRepository;
 import com.Daad.ecommerce.repository.VendorRepository;
 import com.Daad.ecommerce.service.JwtService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -14,6 +15,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.*;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/auth")
 @CrossOrigin(origins = "*")

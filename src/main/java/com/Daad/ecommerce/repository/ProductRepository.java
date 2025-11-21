@@ -32,6 +32,8 @@ public class ProductRepository {
             product.setStatus(rs.getString("status"));
             product.setIsActive(rs.getBoolean("is_active"));
             product.setIsCustomersAlsoBought(rs.getBoolean("is_customers_also_bought"));
+            // reference id for external sync
+            try { product.setReferenceId(rs.getString("reference_id")); } catch (SQLException ignored) {}
             
             // Set category with full details from JOIN (subcategory)
             Product.Category category = new Product.Category();
@@ -112,6 +114,7 @@ public class ProductRepository {
         }
         
         try {
+            // Make SQL query unique to avoid prepared statement conflicts
             String sql = """
                 SELECT 
                     color, 
@@ -184,7 +187,7 @@ public class ProductRepository {
                 WHERE product_id = ? AND color IS NULL
                 ORDER BY is_primary DESC, created_at ASC
                 """;
-            
+
             List<Map<String, Object>> imageData = jdbcTemplate.queryForList(sql, java.util.UUID.fromString(product.getId()));
         
         List<Product.Image> defaultImages = new ArrayList<>();
@@ -298,6 +301,35 @@ public class ProductRepository {
         return Optional.of(product);
     }
 
+    public Optional<Product> findByReferenceId(String referenceId) {
+        if (referenceId == null || referenceId.isBlank()) return Optional.empty();
+        String sql = """
+            SELECT p.*,
+                   c.name as category_name, c.slug as category_slug, c.description as category_description,
+                   c.image_url as category_image_url, c.image_public_id as category_image_public_id,
+                   c.parent_category_id as category_parent_id, c.level as category_level, c.is_active as category_is_active,
+                   v.business_name as vendor_business_name, v.business_type as vendor_business_type,
+                   v.status as vendor_status, v.rating_average as vendor_rating
+            FROM products p
+            LEFT JOIN categories c ON p.category_id = c.id
+            LEFT JOIN vendors v ON p.vendor_id = v.id
+            WHERE p.reference_id = ?
+            LIMIT 1
+            """;
+        try {
+            List<Product> products = jdbcTemplate.query(sql, productRowMapper, referenceId);
+            if (products.isEmpty()) return Optional.empty();
+            Product product = products.get(0);
+            loadInventory(product);
+            loadDefaultImages(product);
+            ensureParentCategoryLoaded(product);
+            return Optional.of(product);
+        } catch (Exception e) {
+            System.err.println("Error finding product by referenceId " + referenceId + ": " + e.getMessage());
+            return Optional.empty();
+        }
+    }
+
     public List<Product> findByIds(List<String> ids) {
         if (ids == null || ids.isEmpty()) {
             return new ArrayList<>();
@@ -332,16 +364,26 @@ public class ProductRepository {
             INSERT INTO products (
                 name, description, price, category_id, vendor_id, gender,
                 total_stock, discount_percentage, discount_valid_until,
-                average_rating, status, is_active, is_customers_also_bought, created_at, updated_at
-            ) VALUES (?, ?, ?, ?::uuid, ?::uuid, ?::product_gender, ?, ?, ?, ?, ?::product_status, ?, ?, NOW(), NOW())
+                average_rating, status, is_active, is_customers_also_bought, reference_id, created_at, updated_at
+            ) VALUES (?, ?, ?, ?::uuid, ?::uuid, ?::product_gender, ?, ?, ?, ?, ?::product_status, ?, ?, ?, NOW(), NOW())
             """;
 
+        // If referenceId is provided we include it in the INSERT; build SQL accordingly
+        boolean hasReference = product.getReferenceId() != null && !product.getReferenceId().isBlank();
+
+        // Prepare UUID params for category/vendor (allow null category)
+        java.util.UUID categoryUuid = null;
+        java.util.UUID vendorUuid = null;
+        try { categoryUuid = product.getCategory() != null && product.getCategory().getId() != null ? java.util.UUID.fromString(product.getCategory().getId()) : null; } catch (Exception ignored) {}
+        try { vendorUuid = product.getVendor() != null && product.getVendor().getId() != null ? java.util.UUID.fromString(product.getVendor().getId()) : null; } catch (Exception ignored) {}
+
+        // Execute insert using UUID objects (jdbcTemplate will map them)
         jdbcTemplate.update(sql,
             product.getName(),
             product.getDescription(),
             product.getPrice(),
-            product.getCategory().getId(),
-            product.getVendor().getId(),
+            categoryUuid,
+            vendorUuid,
             product.getGender(),
             product.getTotalStock() != null ? product.getTotalStock() : 0,
             product.getDiscount() != null ? product.getDiscount().getDiscountValue() : BigDecimal.ZERO,
@@ -350,16 +392,30 @@ public class ProductRepository {
             product.getAverageRating() != null ? product.getAverageRating() : BigDecimal.ZERO,
             product.getStatus() != null ? product.getStatus() : "none",
             product.getIsActive() != null ? product.getIsActive() : true,
-            product.getIsCustomersAlsoBought() != null ? product.getIsCustomersAlsoBought() : false
+            product.getIsCustomersAlsoBought() != null ? product.getIsCustomersAlsoBought() : false,
+            product.getReferenceId() == null || product.getReferenceId().isBlank() ? null : product.getReferenceId()
         );
 
-        // Get the generated UUID
-        String idSql = "SELECT id FROM products WHERE name = ? AND category_id = ?::uuid AND vendor_id = ?::uuid ORDER BY created_at DESC LIMIT 1";
-        String generatedId = jdbcTemplate.queryForObject(idSql, String.class, 
-            product.getName(), 
-            product.getCategory().getId(),
-            product.getVendor().getId()
-        );
+        // Get the generated UUID. If we have a referenceId, fetch by it to avoid ambiguity.
+        String generatedId = null;
+        if (hasReference) {
+            String idSql = "SELECT id FROM products WHERE reference_id = ? AND vendor_id = ?  LIMIT 1";
+            try { generatedId = jdbcTemplate.queryForObject(idSql, String.class, product.getReferenceId(), product.getVendor().getId()); } catch (Exception ignored) {}
+        }
+
+        if (generatedId == null) {
+            String idSql;
+            Object[] idParams;
+            if (categoryUuid != null) {
+                idSql = "SELECT id FROM products WHERE name = ? AND category_id = ?::uuid AND vendor_id = ?::uuid ORDER BY created_at DESC LIMIT 1";
+                idParams = new Object[]{product.getName(), categoryUuid, vendorUuid};
+            } else {
+                // No category provided, match by name and vendor only
+                idSql = "SELECT id FROM products WHERE name = ? AND vendor_id = ?::uuid ORDER BY created_at DESC LIMIT 1";
+                idParams = new Object[]{product.getName(), vendorUuid};
+            }
+            generatedId = jdbcTemplate.queryForObject(idSql, String.class, idParams);
+        }
         
         // Set the generated ID
         product.setId(generatedId);
@@ -373,7 +429,7 @@ public class ProductRepository {
                 name = ?, description = ?, price = ?, category_id = ?, vendor_id = ?,
                 gender = ?::product_gender, total_stock = ?, discount_percentage = ?,
                 discount_valid_until = ?, average_rating = ?, status = ?::product_status,
-                is_active = ?, is_customers_also_bought = ?, updated_at = NOW()
+                is_active = ?, is_customers_also_bought = ?, reference_id = ?, updated_at = NOW()
             WHERE id = ?
             """;
 
@@ -403,6 +459,7 @@ public class ProductRepository {
             product.getStatus(),
             product.getIsActive(),
             product.getIsCustomersAlsoBought(),
+            product.getReferenceId(),
             idUuid
         );
 
