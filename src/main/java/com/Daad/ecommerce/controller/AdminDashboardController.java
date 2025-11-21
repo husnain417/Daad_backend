@@ -1,6 +1,7 @@
 package com.Daad.ecommerce.controller;
 
 import com.Daad.ecommerce.repository.AdminRepository;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -12,6 +13,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/admin")
 @CrossOrigin(origins = "*")
+@Slf4j
 public class AdminDashboardController {
 
     @Autowired
@@ -28,6 +30,7 @@ public class AdminDashboardController {
                 "data", stats
             ));
         } catch (Exception e) {
+            log.error("Error fetching dashboard stats", e);
             return ResponseEntity.status(500).body(Map.of(
                 "success", false,
                 "message", "Error fetching dashboard stats: " + e.getMessage()
@@ -46,6 +49,7 @@ public class AdminDashboardController {
                 "data", vendorRankings
             ));
         } catch (Exception e) {
+            log.error("Error fetching vendor sales ranking", e);
             return ResponseEntity.status(500).body(Map.of(
                 "success", false,
                 "message", "Error fetching vendor sales ranking: " + e.getMessage()
@@ -65,10 +69,21 @@ public class AdminDashboardController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Map<String, Object>> setCommissionRate(@RequestBody Map<String, Object> body) {
         Object val = body.get("commissionRate");
-        if (val == null) return ResponseEntity.badRequest().body(Map.of("success", false, "message", "commissionRate is required"));
+        if (val == null) {
+            log.error("Commission rate validation failed: commissionRate is required");
+            return ResponseEntity.badRequest().body(Map.of("success", false, "message", "commissionRate is required"));
+        }
         double rate;
-        try { rate = Double.parseDouble(val.toString()); } catch (Exception e) { return ResponseEntity.badRequest().body(Map.of("success", false, "message", "commissionRate must be a number")); }
-        if (rate < 0 || rate > 100) return ResponseEntity.badRequest().body(Map.of("success", false, "message", "commissionRate must be between 0 and 100"));
+        try { 
+            rate = Double.parseDouble(val.toString()); 
+        } catch (Exception e) { 
+            log.error("Commission rate validation failed: commissionRate must be a number", e);
+            return ResponseEntity.badRequest().body(Map.of("success", false, "message", "commissionRate must be a number")); 
+        }
+        if (rate < 0 || rate > 100) {
+            log.error("Commission rate validation failed: rate {} is out of range", rate);
+            return ResponseEntity.badRequest().body(Map.of("success", false, "message", "commissionRate must be between 0 and 100"));
+        }
         int rows = adminRepository.setGlobalCommissionRate(rate);
         return ResponseEntity.ok(Map.of("success", true, "updatedRows", rows, "commissionRate", rate));
     }
@@ -83,8 +98,7 @@ public class AdminDashboardController {
             System.out.println("Found " + vendors.size() + " vendors");
             return ResponseEntity.ok(Map.of("success", true, "count", vendors.size(), "data", vendors));
         } catch (Exception e) {
-            System.err.println("Error in getVendorsWithCommission: " + e.getMessage());
-            e.printStackTrace();
+            log.error("Error in getVendorsWithCommission", e);
             return ResponseEntity.status(500).body(Map.of("success", false, "message", "Failed to fetch vendors", "error", e.getMessage()));
         }
     }
@@ -98,27 +112,32 @@ public class AdminDashboardController {
         try {
             Object val = body.get("commissionRate");
             if (val == null) {
+                log.error("Vendor commission update failed for vendorId {}: commissionRate is required", vendorId);
                 return ResponseEntity.badRequest().body(Map.of("success", false, "message", "commissionRate is required"));
             }
-            
+
             double rate;
             try { 
                 rate = Double.parseDouble(val.toString()); 
             } catch (Exception e) { 
+                log.error("Vendor commission update failed for vendorId {}: commissionRate must be a number", vendorId, e);
                 return ResponseEntity.badRequest().body(Map.of("success", false, "message", "commissionRate must be a number")); 
             }
-            
+
             if (rate < 0 || rate > 100) {
+                log.error("Vendor commission update failed for vendorId {}: rate {} is out of range", vendorId, rate);
                 return ResponseEntity.badRequest().body(Map.of("success", false, "message", "commissionRate must be between 0 and 100"));
             }
-            
+
             int rows = adminRepository.updateVendorCommission(vendorId, rate);
             if (rows > 0) {
                 return ResponseEntity.ok(Map.of("success", true, "message", "Commission rate updated successfully", "vendorId", vendorId, "commissionRate", rate));
             } else {
+                log.error("Vendor commission update failed: Vendor {} not found", vendorId);
                 return ResponseEntity.status(404).body(Map.of("success", false, "message", "Vendor not found"));
             }
         } catch (Exception e) {
+            log.error("Failed to update commission rate for vendorId {}", vendorId, e);
             return ResponseEntity.status(500).body(Map.of("success", false, "message", "Failed to update commission rate", "error", e.getMessage()));
         }
     }
@@ -153,6 +172,7 @@ public class AdminDashboardController {
             ));
             
         } catch (Exception e) {
+            log.error("Error fetching filtered orders", e);
             return ResponseEntity.status(500).body(Map.of(
                 "success", false,
                 "message", "Error fetching filtered orders: " + e.getMessage()
@@ -190,6 +210,7 @@ public class AdminDashboardController {
             ));
             
         } catch (Exception e) {
+            log.error("Error fetching filtered products", e);
             return ResponseEntity.status(500).body(Map.of(
                 "success", false,
                 "message", "Error fetching filtered products: " + e.getMessage()

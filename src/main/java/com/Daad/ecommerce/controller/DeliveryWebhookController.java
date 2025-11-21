@@ -4,6 +4,7 @@ import com.Daad.ecommerce.service.DeliveryService;
 import com.Daad.ecommerce.service.FincartApiService;
 import com.Daad.ecommerce.repository.DeliveryRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -13,6 +14,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/delivery")
 @CrossOrigin(origins = "*")
+@Slf4j
 public class DeliveryWebhookController {
 
     @Autowired
@@ -69,7 +71,7 @@ public class DeliveryWebhookController {
             return ResponseEntity.ok(Map.of("success", true, "message", "Webhook processed"));
             
         } catch (Exception e) {
-            System.err.println("Error processing delivery webhook: " + e.getMessage());
+            log.error("Error processing delivery webhook: " + e.getMessage());
             return ResponseEntity.ok(Map.of("success", false, "message", e.getMessage()));
         }
     }
@@ -91,7 +93,7 @@ public class DeliveryWebhookController {
             return ResponseEntity.ok(Map.of("success", true, "message", "Test webhook processed"));
             
         } catch (Exception e) {
-            System.err.println("Error processing test webhook: " + e.getMessage());
+            log.error("Error processing test webhook: " + e.getMessage());
             return ResponseEntity.ok(Map.of("success", false, "message", e.getMessage()));
         }
     }

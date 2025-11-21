@@ -157,6 +157,7 @@ public class VendorRepository {
             if (updatedAtTs != null) {
                 vendor.setUpdatedAt(updatedAtTs.toInstant());
             }
+            try { vendor.setWebsiteSyncUrl(rs.getString("website_sync_url")); } catch (SQLException ignored) {}
             
             return vendor;
         }
@@ -247,6 +248,8 @@ public class VendorRepository {
             if (updatedAtTs != null) {
                 vendor.setUpdatedAt(updatedAtTs.toInstant());
             }
+            try { vendor.setWebsiteSyncUrl(rs.getString("website_sync_url")); } catch (SQLException ignored) {}
+            try { vendor.setRequestToken(rs.getString("request_token")); } catch (SQLException ignored) {}
             
             return vendor;
         }
@@ -286,12 +289,12 @@ public class VendorRepository {
                 id, user_id, business_name, business_type, phone_number, 
                 business_address_line1, business_address_line2, business_city, 
                 business_state, business_postal_code, business_country, 
-                description, logo_url, logo_public_id, status, approved_by, approved_at, 
+                description, logo_url, website_sync_url, request_token, logo_public_id, status, approved_by, approved_at, 
                 bank_account_number, bank_routing_number, bank_account_holder_name, 
                 bank_name, tax_id, return_window, shipping_policy, return_policy, 
                 commission, rating_average, rating_count, profile_completed,
                 created_at, updated_at
-            ) VALUES (?, ?, ?, ?::business_type, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 
+            ) VALUES (?, ?, ?, ?::business_type, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 
                      ?::vendor_status, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
     
@@ -312,10 +315,12 @@ public class VendorRepository {
             vendor.getBusinessAddress().getCountry(),               // 11. business_country
             vendor.getDescription(),                                // 12. description
             vendor.getLogo(),                                       // 13. logo_url
-            null,                                                   // 14. logo_public_id
-            vendor.getStatus() != null ? vendor.getStatus() : "pending", // 15. status
-            vendor.getApprovedBy() != null ? parseUUID(vendor.getApprovedBy().getId()) : null, // 16. approved_by
-            vendor.getApprovedAt() != null ? Timestamp.from(vendor.getApprovedAt()) : null,   // 17. approved_at
+            vendor.getWebsiteSyncUrl(),                             // 14. website_sync_url
+            vendor.getRequestToken(),                               // 15. request_token
+            null,                                                   // 16. logo_public_id
+            vendor.getStatus() != null ? vendor.getStatus() : "pending", // 17. status
+            vendor.getApprovedBy() != null ? parseUUID(vendor.getApprovedBy().getId()) : null, // 18. approved_by
+            vendor.getApprovedAt() != null ? Timestamp.from(vendor.getApprovedAt()) : null,   // 19. approved_at
             null, // 18. bank_account_number
             null, // 19. bank_routing_number  
             null, // 20. bank_account_holder_name
@@ -328,8 +333,8 @@ public class VendorRepository {
             vendor.getRating() != null ? vendor.getRating() : 0.0, // 27. rating_average
             0,    // 28. rating_count (default)
             vendor.getProfileCompleted() != null ? vendor.getProfileCompleted() : false, // 29. profile_completed
-            Timestamp.from(vendor.getCreatedAt()),                  // 30. created_at
-            Timestamp.from(vendor.getUpdatedAt())                   // 31. updated_at
+            Timestamp.from(vendor.getCreatedAt()),                  // 31. created_at
+            Timestamp.from(vendor.getUpdatedAt())                   // 32. updated_at
         );
     
         return vendor;
@@ -343,7 +348,7 @@ public class VendorRepository {
                 business_name = ?, business_type = ?::business_type, phone_number = ?,
                 business_address_line1 = ?, business_address_line2 = ?, business_city = ?,
                 business_state = ?, business_postal_code = ?, business_country = ?,
-                description = ?, logo_url = ?, status = ?::vendor_status, approved_by = ?,
+                description = ?, logo_url = ?, website_sync_url = ?, request_token = ?, status = ?::vendor_status, approved_by = ?,
                 approved_at = ?, tax_id = ?, commission = ?, rating_average = ?,
                 profile_completed = ?, updated_at = ?
             WHERE id = ?
@@ -363,6 +368,8 @@ public class VendorRepository {
             vendor.getBusinessAddress().getCountry(),
             vendor.getDescription(),
             vendor.getLogo(),
+            vendor.getWebsiteSyncUrl(),
+            vendor.getRequestToken(),
             vendor.getStatus(),
             vendor.getApprovedBy() != null ? parseUUID(vendor.getApprovedBy().getId()) : null,
             vendor.getApprovedAt() != null ? Timestamp.from(vendor.getApprovedAt()) : null,

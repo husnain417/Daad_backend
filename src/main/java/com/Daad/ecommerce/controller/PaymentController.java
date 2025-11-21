@@ -7,6 +7,7 @@ import com.Daad.ecommerce.dto.PaymentDtos.RefundResponse;
 import com.Daad.ecommerce.dto.PaymentDtos.VoidResponse;
 import com.Daad.ecommerce.repository.OrderRepository;
 import com.Daad.ecommerce.service.PaymentService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -16,6 +17,7 @@ import java.util.HashMap;
 @RestController
 @RequestMapping("/api/payments")
 @CrossOrigin(origins = "*")
+@Slf4j
 public class PaymentController {
 
     private final PaymentService paymentService;
@@ -30,6 +32,7 @@ public class PaymentController {
     public ResponseEntity<Map<String,Object>> createSession(@RequestBody CreatePaymentSessionRequest req) {
         var orderOpt = orderRepository.findById(req.getOrderId());
         if (orderOpt.isEmpty()) {
+            log.error("Payment session creation failed: Order {} not found", req.getOrderId());
             return ResponseEntity.status(404).body(Map.of("success", false, "message", "Order not found"));
         }
         var order = orderOpt.get();
@@ -42,6 +45,7 @@ public class PaymentController {
                                           @RequestBody PaymobWebhookEvent event) {
         try {
             if (!paymentService.verifyWebhookSignature(event, signature)) {
+                log.error("Webhook verification failed: invalid signature");
                 return ResponseEntity.status(401).body("invalid signature");
             }
 
@@ -56,7 +60,7 @@ public class PaymentController {
 
             return ResponseEntity.ok("ok");
         } catch (Exception e) {
-            System.err.println("Webhook processing error: " + e.getMessage());
+            log.error("Webhook processing error", e);
             return ResponseEntity.status(500).body("webhook processing failed");
         }
     }
@@ -105,6 +109,7 @@ public class PaymentController {
     public ResponseEntity<Map<String,Object>> getOrderPaymentStatus(@PathVariable String orderId) {
         var orderOpt = orderRepository.findById(orderId);
         if (orderOpt.isEmpty()) {
+            log.error("Payment status check failed: Order {} not found", orderId);
             return ResponseEntity.status(404).body(Map.of("success", false, "message", "Order not found"));
         }
         var order = orderOpt.get();
@@ -129,26 +134,29 @@ public class PaymentController {
         try {
             var orderOpt = orderRepository.findById(orderId);
             if (orderOpt.isEmpty()) {
+                log.error("Refund failed: Order {} not found", orderId);
                 return ResponseEntity.status(404).body(Map.of("success", false, "message", "Order not found"));
             }
             var order = orderOpt.get();
             if (order.getTransactionId() == null || order.getTransactionId().isBlank()) {
+                log.error("Refund failed for order {}: No transaction found", orderId);
                 return ResponseEntity.status(400).body(Map.of("success", false, "message", "No transaction found for order"));
             }
-            
+
             // Check if order is already refunded
             if ("refunded".equalsIgnoreCase(order.getPaymentStatus()) || "voided".equalsIgnoreCase(order.getPaymentStatus())) {
+                log.error("Refund failed for order {}: Order already refunded/voided", orderId);
                 return ResponseEntity.status(400).body(Map.of("success", false, "message", "Order already refunded/voided"));
             }
-            
+
             String transactionId = order.getTransactionId();
             Double amountCents = req != null && req.getAmountCents() != null ? req.getAmountCents() : null;
             String reason = req != null ? req.getReason() : null;
-            
+
             RefundResponse result = paymentService.refundTransaction(transactionId, orderId, amountCents, reason);
             return ResponseEntity.ok(Map.of("success", result.isSuccess(), "data", result));
         } catch (Exception e) {
-            System.err.println("Refund endpoint error: " + e.getMessage());
+            log.error("Refund endpoint error for order {}", orderId, e);
             return ResponseEntity.status(500).body(Map.of("success", false, "message", "Internal server error: " + e.getMessage()));
         }
     }
@@ -158,25 +166,28 @@ public class PaymentController {
         try {
             var orderOpt = orderRepository.findById(orderId);
             if (orderOpt.isEmpty()) {
+                log.error("Void payment failed: Order {} not found", orderId);
                 return ResponseEntity.status(404).body(Map.of("success", false, "message", "Order not found"));
             }
             var order = orderOpt.get();
             if (order.getTransactionId() == null || order.getTransactionId().isBlank()) {
+                log.error("Void payment failed for order {}: No transaction found", orderId);
                 return ResponseEntity.status(400).body(Map.of("success", false, "message", "No transaction found for order"));
             }
-            
+
             // Check if order is already refunded/voided
             if ("refunded".equalsIgnoreCase(order.getPaymentStatus()) || "voided".equalsIgnoreCase(order.getPaymentStatus())) {
+                log.error("Void payment failed for order {}: Order already refunded/voided", orderId);
                 return ResponseEntity.status(400).body(Map.of("success", false, "message", "Order already refunded/voided"));
             }
-            
+
             String transactionId = order.getTransactionId();
             String reason = body != null && body.get("reason") != null ? body.get("reason").toString() : null;
-            
+
             VoidResponse result = paymentService.voidTransaction(transactionId, orderId, reason);
             return ResponseEntity.ok(Map.of("success", result.isSuccess(), "data", result));
         } catch (Exception e) {
-            System.err.println("Void endpoint error: " + e.getMessage());
+            log.error("Void endpoint error for order {}", orderId, e);
             return ResponseEntity.status(500).body(Map.of("success", false, "message", "Internal server error: " + e.getMessage()));
         }
     }
@@ -186,12 +197,13 @@ public class PaymentController {
         try {
             var orderOpt = orderRepository.findById(orderId);
             if (orderOpt.isEmpty()) {
+                log.error("Refund status check failed: Order {} not found", orderId);
                 return ResponseEntity.status(404).body(Map.of("success", false, "message", "Order not found"));
             }
             var latest = paymentService.paymentsGetLatestRefundForOrder(orderId);
             return ResponseEntity.ok(Map.of("success", true, "data", latest != null ? latest : Map.of()));
         } catch (Exception e) {
-            System.err.println("Refund status endpoint error: " + e.getMessage());
+            log.error("Refund status endpoint error for order {}", orderId, e);
             return ResponseEntity.status(500).body(Map.of("success", false, "message", "Internal server error: " + e.getMessage()));
         }
     }

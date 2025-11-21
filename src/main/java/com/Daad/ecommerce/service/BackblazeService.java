@@ -11,8 +11,11 @@ import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.*;
 
 import jakarta.annotation.PostConstruct;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
+import java.net.URL;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.UUID;
@@ -147,6 +150,58 @@ public class BackblazeService {
             
         } catch (S3Exception e) {
             throw new IOException("Failed to upload file to Backblaze B2: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Download an image from a remote URL and upload it to Backblaze B2.
+     * Returns the public URL and key similar to uploadMultipart.
+     */
+    public UploadResult uploadFromUrl(String imageUrl, String folder) throws IOException {
+        // Download bytes from imageUrl
+        try (InputStream in = new URL(imageUrl).openStream();
+             ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
+
+            byte[] buffer = new byte[8192];
+            int read;
+            while ((read = in.read(buffer)) != -1) {
+                baos.write(buffer, 0, read);
+            }
+
+            byte[] bytes = baos.toByteArray();
+
+            // Derive filename from URL path
+            String path = new URL(imageUrl).getPath();
+            String originalFilename = path.substring(path.lastIndexOf('/') + 1);
+            if (originalFilename == null || originalFilename.isBlank()) originalFilename = "file";
+            String safeFilename = sanitizeFilename(originalFilename);
+            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"));
+            String uniqueId = UUID.randomUUID().toString().substring(0, 8);
+            String filename = timestamp + "-" + uniqueId + "-" + safeFilename;
+
+            String key = folder + "/" + filename;
+
+            // Attempt to guess content type from filename
+            String contentType = determineContentType(null, safeFilename);
+
+            try {
+                PutObjectRequest putObjectRequest = PutObjectRequest.builder()
+                        .bucket(bucketName)
+                        .key(key)
+                        .contentType(contentType)
+                        .contentLength((long) bytes.length)
+                        .build();
+
+                s3Client.putObject(putObjectRequest, RequestBody.fromBytes(bytes));
+
+                String publicUrl = String.format("https://%s.s3.%s.backblazeb2.com/%s", bucketName, region, key);
+                return new UploadResult(publicUrl, key, filename);
+
+            } catch (S3Exception e) {
+                throw new IOException("Failed to upload file to Backblaze B2: " + e.getMessage(), e);
+            }
+        } catch (IOException e) {
+            throw new IOException("Failed to download image from URL: " + imageUrl + " -> " + e.getMessage(), e);
         }
     }
 

@@ -28,7 +28,7 @@ public class AdminRepository {
         String totalCustomersSql = "SELECT COUNT(*) FROM users WHERE role = 'customer'";
         int totalCustomers = jdbcTemplate.queryForObject(totalCustomersSql, Integer.class);
         stats.put("totalCustomers", totalCustomers);
-        
+
         // Total Revenue (sum of product prices only, excluding shipping charges)
         // Matches vendor dashboard calculation: SUM(order_items.price * order_items.quantity)
         String totalRevenueSql = """
@@ -41,7 +41,7 @@ public class AdminRepository {
             """;
         BigDecimal totalRevenue = jdbcTemplate.queryForObject(totalRevenueSql, BigDecimal.class);
         stats.put("totalRevenue", totalRevenue != null ? totalRevenue.doubleValue() : 0.0);
-        
+
         // Total Commission Earned (sum of commissions from all delivered orders)
         // Commission = (order_item.price * order_item.quantity) * (vendor.commission / 100)
         String totalCommissionSql = """
@@ -56,12 +56,12 @@ public class AdminRepository {
         BigDecimal totalCommission = jdbcTemplate.queryForObject(totalCommissionSql, BigDecimal.class);
         double commissionValue = totalCommission != null ? totalCommission.doubleValue() : 0.0;
         stats.put("totalCommission", commissionValue);
-        
+
         // Calculate commission percentage of total revenue
         double revenueValue = totalRevenue != null ? totalRevenue.doubleValue() : 0.0;
         double commissionPercentage = revenueValue > 0 ? (commissionValue / revenueValue) * 100.0 : 0.0;
         stats.put("commissionPercentage", Math.round(commissionPercentage * 100.0) / 100.0);
-        
+
         // Pending Approvals (vendors + products pending approval)
         String pendingVendorsSql = "SELECT COUNT(*) FROM vendors WHERE status = 'pending'";
         int pendingVendors = jdbcTemplate.queryForObject(pendingVendorsSql, Integer.class);

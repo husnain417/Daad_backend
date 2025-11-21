@@ -5,6 +5,7 @@ import com.Daad.ecommerce.dto.Product;
 import com.Daad.ecommerce.repository.CartRepository;
 import com.Daad.ecommerce.repository.ProductRepository;
 import com.Daad.ecommerce.security.SecurityUtils;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Propagation;
@@ -17,6 +18,7 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/api/cart")
 @CrossOrigin(origins = "*")
+@Slf4j
 public class CartController {
 
 	@Autowired private CartRepository cartRepository;
@@ -156,15 +158,18 @@ public class CartController {
 		int quantity = Integer.parseInt(Objects.toString(body.getOrDefault("quantity", 1)));
 
 		if (productIdObj == null || color == null || size == null) {
+			log.error("Add to cart validation failed: Product ID, color, and size are required");
 			return ResponseEntity.badRequest().body(Map.of("success", false, "message", "Product ID, color, and size are required"));
 		}
 		if (quantity < 1) {
+			log.error("Add to cart validation failed: Quantity must be at least 1");
 			return ResponseEntity.badRequest().body(Map.of("success", false, "message", "Quantity must be at least 1"));
 		}
 
 		String productId = productIdObj.toString();
 		Product product = validateProductForCart(productId);
 		if (product == null) {
+			log.error("Add to cart failed: Product {} not found or not available for purchase", productId);
 			return ResponseEntity.status(404).body(Map.of("success", false, "message", "Product not found or not available for purchase"));
 		}
 
@@ -174,6 +179,7 @@ public class CartController {
 				.filter(sizeInv -> size.equals(sizeInv.getSize()))
 				.findFirst();
 		if (inv.isEmpty() || inv.get().getStock() < quantity) {
+			log.error("Add to cart failed: Insufficient stock for product {} color {} size {}", productId, color, size);
 			return ResponseEntity.status(400).body(Map.of("success", false, "message", "Insufficient stock for " + color + " " + size + ". Available: " + (inv.isPresent() ? inv.get().getStock() : 0)));
 		}
 
@@ -225,24 +231,32 @@ public class CartController {
 		String size = body.get("size").toString();
 		int quantity = Integer.parseInt(body.get("quantity").toString());
 
-		if (quantity < 1) return ResponseEntity.badRequest().body(Map.of("success", false, "message", "Quantity must be at least 1"));
+		if (quantity < 1) {
+			log.error("Update cart validation failed: Quantity must be at least 1");
+			return ResponseEntity.badRequest().body(Map.of("success", false, "message", "Quantity must be at least 1"));
+		}
 
 		Product product = validateProductForCart(productId);
 		if (product == null) {
+			log.error("Update cart failed: Product {} not found or not available for purchase", productId);
 			return ResponseEntity.status(404).body(Map.of("success", false, "message", "Product not found or not available for purchase"));
 		}
-		
+
 		var inv = product.getColorInventories().stream()
 				.filter(colorInv -> color.equals(colorInv.getColor()))
 				.flatMap(colorInv -> colorInv.getSizes().stream())
 				.filter(sizeInv -> size.equals(sizeInv.getSize()))
 				.findFirst();
 		if (inv.isEmpty() || inv.get().getStock() < quantity) {
+			log.error("Update cart failed: Insufficient stock for product {} color {} size {}", productId, color, size);
 			return ResponseEntity.status(400).body(Map.of("success", false, "message", "Insufficient stock for " + color + " " + size + ". Available: " + (inv.isPresent() ? inv.get().getStock() : 0)));
 		}
 
 		Cart cart = cartRepository.findByIdentifier(cartIdentifier, isLoggedIn).orElse(null);
-		if (cart == null) return ResponseEntity.status(404).body(Map.of("success", false, "message", "Cart not found"));
+		if (cart == null) {
+			log.error("Update cart failed: Cart {} not found", cartIdentifier);
+			return ResponseEntity.status(404).body(Map.of("success", false, "message", "Cart not found"));
+		}
 
 		cart.updateItemQuantity(productId, product.getVendor() != null ? product.getVendor().getId() : null, color, size, quantity);
 		
@@ -286,7 +300,10 @@ public class CartController {
 		String size = body.get("size").toString();
 
 		Cart cart = cartRepository.findByIdentifier(cartIdentifier, isLoggedIn).orElse(null);
-		if (cart == null) return ResponseEntity.status(404).body(Map.of("success", false, "message", "Cart not found"));
+		if (cart == null) {
+			log.error("Remove from cart failed: Cart {} not found", cartIdentifier);
+			return ResponseEntity.status(404).body(Map.of("success", false, "message", "Cart not found"));
+		}
 
 		Product product = validateProductForCart(productId);
 		String vendorId = product != null && product.getVendor() != null ? product.getVendor().getId() : null;
@@ -314,7 +331,10 @@ public class CartController {
 		boolean isLoggedIn = isUserLoggedIn();
 		
 		Cart cart = cartRepository.findByIdentifier(cartIdentifier, isLoggedIn).orElse(null);
-		if (cart == null) return ResponseEntity.status(404).body(Map.of("success", false, "message", "Cart not found"));
+		if (cart == null) {
+			log.error("Clear cart failed: Cart {} not found", cartIdentifier);
+			return ResponseEntity.status(404).body(Map.of("success", false, "message", "Cart not found"));
+		}
 		cart.clearCart();
 		cartRepository.save(cart);
 
@@ -358,7 +378,10 @@ public class CartController {
 		}
 		
 		Cart cart = cartRepository.findByIdentifier(cartIdentifier, isLoggedIn).orElse(null);
-		if (cart == null) return ResponseEntity.status(404).body(Map.of("success", false, "message", "Cart not found"));
+		if (cart == null) {
+			log.error("Update shipping address failed: Cart {} not found", cartIdentifier);
+			return ResponseEntity.status(404).body(Map.of("success", false, "message", "Cart not found"));
+		}
 		cart.setShippingAddress(shippingAddress);
 		cartRepository.save(cart);
 
@@ -383,7 +406,10 @@ public class CartController {
 		boolean isLoggedIn = isUserLoggedIn();
 		
 		Cart cart = cartRepository.findByIdentifier(cartIdentifier, isLoggedIn).orElse(null);
-		if (cart == null) return ResponseEntity.status(404).body(Map.of("success", false, "message", "Cart not found"));
+		if (cart == null) {
+			log.error("Calculate shipping failed: Cart {} not found", cartIdentifier);
+			return ResponseEntity.status(404).body(Map.of("success", false, "message", "Cart not found"));
+		}
 
 		Map<String, Object> shippingAddress = (Map<String, Object>) body.get("shippingAddress");
 
@@ -484,11 +510,13 @@ public class CartController {
 	@PostMapping("/merge")
 	public ResponseEntity<Map<String, Object>> mergeGuestCart(@RequestBody Map<String, Object> body) {
 		if (!isUserLoggedIn()) {
+			log.error("Merge cart failed: User must be logged in");
 			return ResponseEntity.status(401).body(Map.of("success", false, "message", "User must be logged in to merge cart"));
 		}
-		
+
 		String guestCartId = Objects.toString(body.get("guestCartId"), null);
 		if (guestCartId == null || guestCartId.trim().isEmpty()) {
+			log.error("Merge cart validation failed: Guest cart ID is required");
 			return ResponseEntity.badRequest().body(Map.of("success", false, "message", "Guest cart ID is required"));
 		}
 		

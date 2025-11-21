@@ -36,7 +36,7 @@ public class AccountEmailService {
         variables.put("userName", user.getUsername());
         variables.put("userEmail", user.getEmail());
         variables.put("verificationToken", verificationToken);
-        variables.put("verificationLink", "https://daad.com/verify-email?token=" + verificationToken);
+        variables.put("verificationLink", "https://daadfashion.com/verify-email?token=" + verificationToken);
 
         emailTemplateService.sendHtmlEmail(
             user.getEmail(),
@@ -52,7 +52,7 @@ public class AccountEmailService {
         variables.put("userName", user.getUsername());
         variables.put("userEmail", user.getEmail());
         variables.put("resetToken", resetToken);
-        variables.put("resetLink", "https://daad.com/reset-password?token=" + resetToken);
+        variables.put("resetLink", "https://daadfashion.com/reset-password?token=" + resetToken);
         variables.put("expiryTime", "24 hours");
 
         emailTemplateService.sendHtmlEmail(
