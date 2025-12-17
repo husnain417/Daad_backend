@@ -14,6 +14,7 @@ public class Product {
     private Category parentCategory; // parent/top-level category
     private Vendor vendor;
     private String gender;
+    private String ageRange; // Age range for kids products (e.g., "0-3 months", "2-4 years")
     private List<ColorInventory> colorInventories = new ArrayList<>();
     private Integer totalStock = 0;
     private List<Image> defaultImages = new ArrayList<>();
@@ -82,6 +83,9 @@ public class Product {
     
     public String getGender() { return gender; }
     public void setGender(String gender) { this.gender = gender; }
+    
+    public String getAgeRange() { return ageRange; }
+    public void setAgeRange(String ageRange) { this.ageRange = ageRange; }
     
     public List<ColorInventory> getColorInventories() { return colorInventories; }
     public void setColorInventories(List<ColorInventory> colorInventories) { this.colorInventories = colorInventories; }

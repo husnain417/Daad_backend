@@ -100,6 +100,8 @@ public class UserController {
             vendorInfo.put("phoneNumber", vendor.getPhoneNumber());
             vendorInfo.put("commission", vendor.getCommission());
             vendorInfo.put("ratingAverage", vendor.getRating());
+            vendorInfo.put("description", vendor.getDescription());
+            vendorInfo.put("logo", vendor.getLogo());
             vendorInfo.put("websiteSyncUrl", vendor.getWebsiteSyncUrl());
             if (vendor.getBusinessAddress() != null) {
                 Map<String, Object> addr = new LinkedHashMap<>();
@@ -442,6 +444,39 @@ public class UserController {
         }
         if (body.role != null && !(body.role.equals("customer") || body.role.equals("vendor"))) {
             return ResponseEntity.badRequest().body(Map.of("message", "Invalid role specified"));
+        }
+
+        // Validate vendorDetails is provided for vendor registration
+        if ("vendor".equals(body.role) && body.vendorDetails == null) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Vendor details are required for vendor registration"));
+        }
+
+        // Validate required vendor fields if vendorDetails is provided
+        if ("vendor".equals(body.role) && body.vendorDetails != null) {
+            if (body.vendorDetails.businessName == null || body.vendorDetails.businessName.trim().isEmpty()) {
+                return ResponseEntity.badRequest().body(Map.of("message", "Business name is required"));
+            }
+            if (body.vendorDetails.businessType == null || body.vendorDetails.businessType.trim().isEmpty()) {
+                return ResponseEntity.badRequest().body(Map.of("message", "Business type is required"));
+            }
+            if (body.vendorDetails.phoneNumber == null || body.vendorDetails.phoneNumber.trim().isEmpty()) {
+                return ResponseEntity.badRequest().body(Map.of("message", "Phone number is required"));
+            }
+            if (body.vendorDetails.businessAddress == null) {
+                return ResponseEntity.badRequest().body(Map.of("message", "Business address is required"));
+            }
+            if (body.vendorDetails.businessAddress.addressLine1 == null || body.vendorDetails.businessAddress.addressLine1.trim().isEmpty()) {
+                return ResponseEntity.badRequest().body(Map.of("message", "Address line 1 is required"));
+            }
+            if (body.vendorDetails.businessAddress.city == null || body.vendorDetails.businessAddress.city.trim().isEmpty()) {
+                return ResponseEntity.badRequest().body(Map.of("message", "City is required"));
+            }
+            if (body.vendorDetails.businessAddress.state == null || body.vendorDetails.businessAddress.state.trim().isEmpty()) {
+                return ResponseEntity.badRequest().body(Map.of("message", "State is required"));
+            }
+            if (body.vendorDetails.businessAddress.postalCode == null || body.vendorDetails.businessAddress.postalCode.trim().isEmpty()) {
+                return ResponseEntity.badRequest().body(Map.of("message", "Postal code is required"));
+            }
         }
 
         if (userRepository.findByUsername(body.username).isPresent()) {
@@ -907,6 +942,73 @@ public class UserController {
         }
         
         return ResponseEntity.ok(Map.of("success", true, "message", "Vendor status updated to " + status));
+    }
+
+    // =========================
+    // Admin: User Management
+    // =========================
+
+    @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
+    @GetMapping("/admin/users")
+    public ResponseEntity<?> getAllUsers(@RequestParam(value = "role", required = false) String role) {
+        List<User> users;
+        if (role != null && !role.trim().isEmpty()) {
+            users = userRepository.findByRole(role);
+        } else {
+            users = userRepository.findAll();
+        }
+
+        List<Map<String, Object>> data = new ArrayList<>();
+        for (User u : users) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("id", u.getId());
+            item.put("username", u.getUsername());
+            item.put("email", u.getEmail());
+            item.put("role", u.getRole());
+            item.put("isVerified", u.getIsVerified());
+            item.put("profilePicUrl", u.getProfilePicUrl());
+            item.put("createdAt", u.getCreatedAt());
+            item.put("updatedAt", u.getUpdatedAt());
+            data.add(item);
+        }
+
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "count", data.size(),
+                "data", data
+        ));
+    }
+
+    @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
+    @PutMapping("/admin/users/{userId}/role")
+    public ResponseEntity<?> updateUserRole(@PathVariable String userId, @RequestBody Map<String, String> body) {
+        String newRole = body.get("role");
+        if (newRole == null || newRole.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("success", false, "message", "Role is required"));
+        }
+        if (!newRole.equals("customer") && !newRole.equals("vendor") && !newRole.equals("admin")) {
+            return ResponseEntity.badRequest().body(Map.of("success", false, "message", "Invalid role. Allowed: customer, vendor, admin"));
+        }
+
+        Optional<User> userOpt = userRepository.findById(userId);
+        if (userOpt.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("success", false, "message", "User not found"));
+        }
+
+        userRepository.updateRole(userId, newRole);
+
+        return ResponseEntity.ok(Map.of("success", true, "message", "User role updated", "role", newRole));
+    }
+    
+    @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
+    @DeleteMapping("/admin/users/{userId}")
+    public ResponseEntity<?> deleteUser(@PathVariable String userId) {
+        Optional<User> userOpt = userRepository.findById(userId);
+        if (userOpt.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("success", false, "message", "User not found"));
+        }
+        userRepository.deleteById(userId);
+        return ResponseEntity.ok(Map.of("success", true, "message", "User deleted"));
     }
     
     private String buildBankDetailsJson(String bankName, String accountNumber, String accountHolderName) {

@@ -27,6 +27,7 @@ public class ProductRepository {
             product.setDescription(rs.getString("description"));
             product.setPrice(rs.getBigDecimal("price"));
             product.setGender(rs.getString("gender"));
+            try { product.setAgeRange(rs.getString("age_range")); } catch (SQLException ignored) {}
             product.setTotalStock(rs.getInt("total_stock"));
             product.setAverageRating(rs.getBigDecimal("average_rating"));
             product.setStatus(rs.getString("status"));
@@ -362,10 +363,10 @@ public class ProductRepository {
     private Product insert(Product product) {
         String sql = """
             INSERT INTO products (
-                name, description, price, category_id, vendor_id, gender,
+                name, description, price, category_id, vendor_id, gender, age_range,
                 total_stock, discount_percentage, discount_valid_until,
                 average_rating, status, is_active, is_customers_also_bought, reference_id, created_at, updated_at
-            ) VALUES (?, ?, ?, ?::uuid, ?::uuid, ?::product_gender, ?, ?, ?, ?, ?::product_status, ?, ?, ?, NOW(), NOW())
+            ) VALUES (?, ?, ?, ?::uuid, ?::uuid, ?::product_gender, ?, ?, ?, ?, ?, ?::product_status, ?, ?, ?, NOW(), NOW())
             """;
 
         // If referenceId is provided we include it in the INSERT; build SQL accordingly
@@ -377,6 +378,9 @@ public class ProductRepository {
         try { categoryUuid = product.getCategory() != null && product.getCategory().getId() != null ? java.util.UUID.fromString(product.getCategory().getId()) : null; } catch (Exception ignored) {}
         try { vendorUuid = product.getVendor() != null && product.getVendor().getId() != null ? java.util.UUID.fromString(product.getVendor().getId()) : null; } catch (Exception ignored) {}
 
+        // Normalize gender to match DB enum
+        String genderValue = normalizeProductGender(product.getGender());
+
         // Execute insert using UUID objects (jdbcTemplate will map them)
         jdbcTemplate.update(sql,
             product.getName(),
@@ -384,7 +388,8 @@ public class ProductRepository {
             product.getPrice(),
             categoryUuid,
             vendorUuid,
-            product.getGender(),
+            genderValue,
+            product.getAgeRange(),
             product.getTotalStock() != null ? product.getTotalStock() : 0,
             product.getDiscount() != null ? product.getDiscount().getDiscountValue() : BigDecimal.ZERO,
             product.getDiscount() != null && product.getDiscount().getEndDate() != null ? 
@@ -427,7 +432,7 @@ public class ProductRepository {
         String sql = """
             UPDATE products SET 
                 name = ?, description = ?, price = ?, category_id = ?, vendor_id = ?,
-                gender = ?::product_gender, total_stock = ?, discount_percentage = ?,
+                gender = ?::product_gender, age_range = ?, total_stock = ?, discount_percentage = ?,
                 discount_valid_until = ?, average_rating = ?, status = ?::product_status,
                 is_active = ?, is_customers_also_bought = ?, reference_id = ?, updated_at = NOW()
             WHERE id = ?
@@ -451,7 +456,8 @@ public class ProductRepository {
             product.getPrice(),
             categoryUuid,
             vendorUuid,
-            product.getGender(),
+            normalizeProductGender(product.getGender()),
+            product.getAgeRange(),
             product.getTotalStock(),
             product.getDiscount() != null ? product.getDiscount().getDiscountValue() : BigDecimal.ZERO,
             discountUntil,
@@ -948,7 +954,7 @@ public class ProductRepository {
             product.getPrice(),
             categoryUuid,
             vendorUuid,
-            product.getGender(),
+            normalizeProductGender(product.getGender()),
             product.getTotalStock(),
             product.getDiscount() != null ? product.getDiscount().getDiscountValue() : null,
             discountUntil,
@@ -960,6 +966,48 @@ public class ProductRepository {
         );
         
         return rowsAffected > 0;
+    }
+
+    public boolean updateDiscount(String productId, BigDecimal discountPercentage, Timestamp discountValidUntil, boolean isActive) {
+        String sql = """
+            UPDATE products
+            SET discount_percentage = ?, 
+                discount_valid_until = ?, 
+                updated_at = NOW()
+            WHERE id = ?::uuid
+            """;
+
+        BigDecimal pct = (isActive && discountPercentage != null) ? discountPercentage : BigDecimal.ZERO;
+        Timestamp end = (isActive) ? discountValidUntil : null;
+
+        int rows = jdbcTemplate.update(sql, pct, end, productId);
+        return rows > 0;
+    }
+
+    public boolean clearDiscount(String productId) {
+        return updateDiscount(productId, BigDecimal.ZERO, null, false);
+    }
+
+    // Normalize incoming gender values to match the database enum product_gender
+    private String normalizeProductGender(String gender) {
+        if (gender == null || gender.isBlank()) return "Unisex";
+        String g = gender.trim().toLowerCase();
+        switch (g) {
+            case "boy":
+            case "male":
+            case "men":
+                return "Men";
+            case "girl":
+            case "female":
+            case "women":
+                return "Women";
+            case "unisex":
+                return "Unisex";
+            case "none":
+                return "None";
+            default:
+                return "Unisex";
+        }
     }
     
     public boolean deleteProduct(String productId) {
@@ -1099,12 +1147,15 @@ public class ProductRepository {
                 p.name,
                 p.price,
                 p.status,
+                p.gender,
+                p.age_range,
                 c.slug AS category_slug,
                 CASE 
                     WHEN p.description IS NULL THEN NULL 
                     ELSE LEFT(REGEXP_REPLACE(p.description, '\\s+', ' ', 'g'), 120)
                 END AS short_description,
-                COALESCE(imgs.image_urls, ARRAY[]::text[]) AS image_urls
+                COALESCE(imgs.image_urls, ARRAY[]::text[]) AS image_urls,
+                COALESCE(inv.colors, ARRAY[]::text[]) AS colors
             FROM products p
             LEFT JOIN categories c ON p.category_id = c.id
             LEFT JOIN LATERAL (
@@ -1116,6 +1167,14 @@ public class ProductRepository {
                     LIMIT 2
                 ) AS image_urls
             ) imgs ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT ARRAY(
+                    SELECT DISTINCT color
+                    FROM product_inventory pi
+                    WHERE pi.product_id = p.id
+                    ORDER BY color
+                ) AS colors
+            ) inv ON TRUE
             WHERE p.is_active = TRUE
         """);
 
@@ -1185,8 +1244,21 @@ public class ProductRepository {
             m.put("name", rs.getString("name"));
             m.put("price", rs.getBigDecimal("price"));
             m.put("status", rs.getString("status"));
+            try { m.put("gender", rs.getString("gender")); } catch (Exception ignored) {}
+            try { m.put("ageRange", rs.getString("age_range")); } catch (Exception ignored) {}
             m.put("slug", rs.getString("category_slug"));
             m.put("shortDescription", rs.getString("short_description"));
+            try {
+                java.sql.Array colorsArr = rs.getArray("colors");
+                if (colorsArr != null) {
+                    Object[] arr = (Object[]) colorsArr.getArray();
+                    List<String> colors = new ArrayList<>();
+                    for (Object o : arr) {
+                        if (o != null) colors.add(o.toString());
+                    }
+                    m.put("colors", colors);
+                }
+            } catch (Exception ignored) {}
             // Convert image_urls (text[]) to List<String>
             java.sql.Array arr = rs.getArray("image_urls");
             List<String> urls = new ArrayList<>();
@@ -1444,7 +1516,7 @@ public class ProductRepository {
         });
     }
 
-    // Get brands/vendors with stats for home page
+    // Get brands/vendors with stats for home page (only vendors with at least one approved active product)
     public List<Map<String, Object>> findBrandsWithStats(int page, int limit) {
         String sql = """
             SELECT 
@@ -1479,7 +1551,7 @@ public class ProductRepository {
         });
     }
 
-    // Count active vendors with products
+    // Count active approved vendors that have at least one approved active product
     public int countActiveVendors() {
         String sql = """
             SELECT COUNT(DISTINCT v.id)

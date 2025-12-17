@@ -69,6 +69,87 @@ public class EcommerceApplication {
                     }
                     
                     System.setProperty(key, value);
+                    
+                    // Map environment variables to Spring Boot property names
+                    // Database
+                    if ("DB_URL".equals(key)) {
+                        System.setProperty("spring.datasource.url", value);
+                    } else if ("DB_USERNAME".equals(key)) {
+                        System.setProperty("spring.datasource.username", value);
+                    } else if ("DB_PASSWORD".equals(key)) {
+                        System.setProperty("spring.datasource.password", value);
+                    } else if ("DB_DRIVER".equals(key)) {
+                        System.setProperty("spring.datasource.driver-class-name", value);
+                    }
+                    // Server
+                    else if ("SERVER_PORT".equals(key)) {
+                        System.setProperty("server.port", value);
+                    }
+                    // JWT
+                    else if ("JWT_ACCESS_SECRET".equals(key)) {
+                        System.setProperty("jwt.access.secret", value);
+                    } else if ("JWT_RESET_SECRET".equals(key)) {
+                        System.setProperty("jwt.reset.secret", value);
+                    }
+                    // Email
+                    else if ("SMTP_HOST".equals(key)) {
+                        System.setProperty("spring.mail.host", value);
+                    } else if ("SMTP_PORT".equals(key)) {
+                        System.setProperty("spring.mail.port", value);
+                    } else if ("SMTP_USERNAME".equals(key)) {
+                        System.setProperty("spring.mail.username", value);
+                    } else if ("SMTP_PASSWORD".equals(key)) {
+                        System.setProperty("spring.mail.password", value);
+                    }
+                    // Backblaze
+                    else if ("BACKBLAZE_B2_KEY_ID".equals(key)) {
+                        System.setProperty("backblaze.b2.key-id", value);
+                    } else if ("BACKBLAZE_B2_APPLICATION_KEY".equals(key)) {
+                        System.setProperty("backblaze.b2.application-key", value);
+                    } else if ("BACKBLAZE_B2_BUCKET_NAME".equals(key)) {
+                        System.setProperty("backblaze.b2.bucket-name", value);
+                    } else if ("BACKBLAZE_B2_ENDPOINT".equals(key)) {
+                        System.setProperty("backblaze.b2.endpoint", value);
+                    } else if ("BACKBLAZE_B2_REGION".equals(key)) {
+                        System.setProperty("backblaze.b2.region", value);
+                    }
+                    // Paymob
+                    else if ("PAYMOB_API_KEY".equals(key)) {
+                        System.setProperty("payments.paymob.api-key", value);
+                    } else if ("PAYMOB_SECRET_KEY".equals(key)) {
+                        System.setProperty("payments.paymob.secret-key", value);
+                    } else if ("PAYMOB_PUBLIC_KEY".equals(key)) {
+                        System.setProperty("payments.paymob.public-key", value);
+                    } else if ("PAYMOB_INTEGRATION_ID".equals(key)) {
+                        System.setProperty("payments.paymob.integration-id", value);
+                    } else if ("PAYMOB_IFRAME_ID".equals(key)) {
+                        System.setProperty("payments.paymob.iframe-id", value);
+                    } else if ("PAYMOB_WEBHOOK_URL".equals(key)) {
+                        System.setProperty("payments.paymob.webhook-url", value);
+                    } else if ("PAYMOB_SUCCESS_URL".equals(key)) {
+                        System.setProperty("payments.paymob.success-url", value);
+                    } else if ("PAYMOB_FAILURE_URL".equals(key)) {
+                        System.setProperty("payments.paymob.failure-url", value);
+                    } else if ("PAYMOB_API_BASE_URL".equals(key)) {
+                        System.setProperty("payments.paymob.api-base-url", value);
+                    }
+                    // Google
+                    else if ("GOOGLE_CLIENT_ID".equals(key)) {
+                        System.setProperty("google.client.id", value);
+                    } else if ("GOOGLE_CLIENT_SECRET".equals(key)) {
+                        System.setProperty("google.client.secret", value);
+                    }
+                    // Microsoft Graph
+                    else if ("MICROSOFT_GRAPH_CLIENT_ID".equals(key)) {
+                        System.setProperty("microsoft.graph.client-id", value);
+                    } else if ("MICROSOFT_GRAPH_TENANT_ID".equals(key)) {
+                        System.setProperty("microsoft.graph.tenant-id", value);
+                    } else if ("MICROSOFT_GRAPH_SECRET".equals(key)) {
+                        System.setProperty("microsoft.graph.secret", value);
+                    } else if ("MICROSOFT_GRAPH_SENDER_EMAIL".equals(key)) {
+                        System.setProperty("microsoft.graph.sender-email", value);
+                    }
+                    
                     loadedCount++;
                     
                     // Log loaded variables (hide sensitive ones)
@@ -78,6 +159,24 @@ public class EcommerceApplication {
                         System.out.println("✅ Loaded: " + key + "=" + value);
                     }
                 }
+            }
+            
+            // Set defaults for required properties if not provided
+            if (System.getProperty("payments.paymob.api-base-url") == null) {
+                System.setProperty("payments.paymob.api-base-url", "https://accept.paymob.com/api");
+            }
+            // Set empty defaults for Microsoft Graph (optional - only needed if using Microsoft Graph email)
+            if (System.getProperty("microsoft.graph.client-id") == null) {
+                System.setProperty("microsoft.graph.client-id", "");
+            }
+            if (System.getProperty("microsoft.graph.tenant-id") == null) {
+                System.setProperty("microsoft.graph.tenant-id", "");
+            }
+            if (System.getProperty("microsoft.graph.secret") == null) {
+                System.setProperty("microsoft.graph.secret", "");
+            }
+            if (System.getProperty("microsoft.graph.sender-email") == null) {
+                System.setProperty("microsoft.graph.sender-email", "");
             }
             
             System.out.println("🎉 Successfully loaded " + loadedCount + " environment variables from .env");
@@ -139,6 +238,6 @@ public class EcommerceApplication {
         }
         
         System.out.println("🚀 Spring Boot Application Started Successfully!");
-        System.out.println("🌍 Backend is running on port 5000");
+        System.out.println("🌍 Backend is running on port 5205");
     }
 }

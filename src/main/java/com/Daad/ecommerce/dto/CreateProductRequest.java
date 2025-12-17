@@ -10,6 +10,7 @@ public class CreateProductRequest {
     private String category;
     private String subcategory;
     private String gender;
+    private String ageRange;
     private List<ColorInventoryRequest> colorInventories;
     private DiscountRequest discount;
     
@@ -31,6 +32,9 @@ public class CreateProductRequest {
     
     public String getGender() { return gender; }
     public void setGender(String gender) { this.gender = gender; }
+    
+    public String getAgeRange() { return ageRange; }
+    public void setAgeRange(String ageRange) { this.ageRange = ageRange; }
     
     public List<ColorInventoryRequest> getColorInventories() { return colorInventories; }
     public void setColorInventories(List<ColorInventoryRequest> colorInventories) { this.colorInventories = colorInventories; }

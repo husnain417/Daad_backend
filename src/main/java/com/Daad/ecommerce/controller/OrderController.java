@@ -119,6 +119,35 @@ public class OrderController {
 		}
 	}
 
+	// Compute discounted price on the server to prevent client tampering
+	private double computeDiscountedPrice(Product product) {
+		if (product == null || product.getPrice() == null) return 0.0;
+		double price = product.getPrice().doubleValue();
+		double pct = 0.0;
+
+		// Determine if discount is active and not expired
+		if (product.getDiscount() != null && product.getDiscount().getDiscountValue() != null) {
+			boolean isActive = product.getDiscount().getIsActive() == null || product.getDiscount().getIsActive();
+			boolean notExpired = true;
+			if (product.getDiscount().getEndDate() != null) {
+				try {
+					var end = java.time.LocalDateTime.parse(product.getDiscount().getEndDate());
+					notExpired = end.isAfter(java.time.LocalDateTime.now());
+				} catch (Exception ignored) {}
+			}
+			if (isActive && notExpired) {
+				pct = product.getDiscount().getDiscountValue().doubleValue();
+			}
+		}
+
+		if (pct < 0) pct = 0;
+		if (pct > 100) pct = 100;
+
+		double discounted = price * (1 - pct / 100.0);
+		if (discounted < 0) discounted = 0;
+		return discounted;
+	}
+
 	@PostMapping("/create")
 	@PreAuthorize("isAuthenticated()")
 	public ResponseEntity<Map<String, Object>> createOrderAuth(
@@ -201,6 +230,9 @@ public class OrderController {
 					return ResponseEntity.status(400).body(Map.of("success", false, "message", product.getName() + " is out of stock or has insufficient quantity"));
 				}
 
+				// Compute price with discount (server-side to avoid client tampering)
+				double priceToUse = computeDiscountedPrice(product);
+
 				Order.Item oi = new Order.Item();
 				oi.setProduct(productId);
 				oi.setVendorId(product.getVendor() != null ? product.getVendor().getId() : null);
@@ -208,7 +240,7 @@ public class OrderController {
 				oi.setColor(color);
 				oi.setSize(size);
 				oi.setQuantity(quantity);
-				oi.setPrice(Double.valueOf(item.get("price").toString()));
+				oi.setPrice(priceToUse);
 				processedItems.add(oi);
 
 				// deduct stock using repository method

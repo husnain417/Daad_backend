@@ -20,6 +20,7 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.sql.Timestamp;
 import java.util.*;
 import java.util.stream.Collectors;
 import com.Daad.ecommerce.model.Vendor;
@@ -488,17 +489,19 @@ public class ProductController {
             product.setDescription(request.getDescription());
             product.setPrice(request.getPrice());
             
-            // Convert gender to proper enum case
+            // Convert gender to DB enum values (Men, Women, Unisex, Male, Female, None)
             String gender = request.getGender();
             if (gender != null) {
                 switch (gender.toLowerCase()) {
+                    case "boy":
                     case "men":
                     case "male":
-                        product.setGender("Men");
+                        product.setGender("Male"); // matches enum product_gender
                         break;
+                    case "girl":
                     case "women":
                     case "female":
-                        product.setGender("Women");
+                        product.setGender("Female"); // matches enum product_gender
                         break;
                     case "unisex":
                         product.setGender("Unisex");
@@ -509,6 +512,11 @@ public class ProductController {
                 }
             } else {
                 product.setGender("Unisex"); // Default fallback
+            }
+            
+            // Set age range if provided
+            if (request.getAgeRange() != null && !request.getAgeRange().trim().isEmpty()) {
+                product.setAgeRange(request.getAgeRange());
             }
             
             product.setStatus("draft");
@@ -626,6 +634,138 @@ public class ProductController {
                 "success", false,
                 "message", "Error creating product: " + e.getMessage()
             ));
+        }
+    }
+
+    // --- Discount Management (Vendor only) ---
+
+    @PutMapping("/{productId}/discount")
+    @PreAuthorize("hasRole('VENDOR')")
+    public ResponseEntity<Map<String, Object>> setDiscount(
+            @PathVariable String productId,
+            @RequestBody Map<String, Object> body,
+            Authentication authentication) {
+        try {
+            String userId = authentication.getName();
+            Optional<Vendor> vendorOpt = vendorRepository.findByUserId(userId);
+            if (vendorOpt.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("success", false, "message", "Vendor not found"));
+            }
+
+            Optional<Product> productOpt = productRepository.findById(productId);
+            if (productOpt.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("success", false, "message", "Product not found"));
+            }
+
+            Product product = productOpt.get();
+            if (product.getVendor() == null || product.getVendor().getId() == null ||
+                    !product.getVendor().getId().equals(vendorOpt.get().getId())) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("success", false, "message", "You can only manage your own products"));
+            }
+
+            Object val = body.get("discountValue");
+            Object typeObj = body.get("discountType");
+            Object endDateObj = body.get("endDate");
+            Object activeObj = body.get("isActive");
+
+            if (val == null || typeObj == null) {
+                return ResponseEntity.badRequest().body(Map.of("success", false, "message", "discountValue and discountType are required"));
+            }
+
+            double discountValue;
+            try {
+                discountValue = Double.parseDouble(val.toString());
+            } catch (Exception e) {
+                return ResponseEntity.badRequest().body(Map.of("success", false, "message", "discountValue must be a number"));
+            }
+
+            String discountType = typeObj.toString().toLowerCase();
+            if (!discountType.equals("percentage") && !discountType.equals("fixed")) {
+                return ResponseEntity.badRequest().body(Map.of("success", false, "message", "discountType must be 'percentage' or 'fixed'"));
+            }
+
+            boolean isActive = activeObj == null || Boolean.parseBoolean(activeObj.toString());
+
+            BigDecimal pct;
+            if (discountType.equals("percentage")) {
+                if (discountValue < 0 || discountValue > 100) {
+                    return ResponseEntity.badRequest().body(Map.of("success", false, "message", "Percentage discount must be between 0 and 100"));
+                }
+                pct = BigDecimal.valueOf(discountValue);
+            } else { // fixed
+                if (discountValue < 0) {
+                    return ResponseEntity.badRequest().body(Map.of("success", false, "message", "Fixed discount cannot be negative"));
+                }
+                BigDecimal price = product.getPrice() != null ? product.getPrice() : BigDecimal.ZERO;
+                if (price.compareTo(BigDecimal.ZERO) <= 0) {
+                    return ResponseEntity.badRequest().body(Map.of("success", false, "message", "Product price must be greater than zero for fixed discount"));
+                }
+                pct = BigDecimal.valueOf(discountValue).divide(price, 4, java.math.RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100));
+                if (pct.compareTo(BigDecimal.valueOf(100)) > 0) {
+                    pct = BigDecimal.valueOf(100);
+                }
+            }
+
+            Timestamp endTs = null;
+            if (endDateObj != null && !endDateObj.toString().isBlank()) {
+                try {
+                    endTs = Timestamp.valueOf(java.time.LocalDateTime.parse(endDateObj.toString()));
+                } catch (Exception e) {
+                    return ResponseEntity.badRequest().body(Map.of("success", false, "message", "Invalid endDate format; expected ISO-8601 LocalDateTime"));
+                }
+            }
+
+            boolean updated = productRepository.updateDiscount(productId, pct, endTs, isActive);
+            if (!updated) {
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("success", false, "message", "Failed to update discount"));
+            }
+
+            return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "Discount updated successfully",
+                "discountPercentage", pct,
+                "discountType", discountType,
+                "discountValidUntil", endTs,
+                "isActive", isActive
+            ));
+        } catch (Exception e) {
+            log.error("Error setting discount: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("success", false, "message", "Error setting discount", "error", e.getMessage()));
+        }
+    }
+
+    @DeleteMapping("/{productId}/discount")
+    @PreAuthorize("hasRole('VENDOR')")
+    public ResponseEntity<Map<String, Object>> clearDiscount(
+            @PathVariable String productId,
+            Authentication authentication) {
+        try {
+            String userId = authentication.getName();
+            Optional<Vendor> vendorOpt = vendorRepository.findByUserId(userId);
+            if (vendorOpt.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("success", false, "message", "Vendor not found"));
+            }
+
+            Optional<Product> productOpt = productRepository.findById(productId);
+            if (productOpt.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("success", false, "message", "Product not found"));
+            }
+
+            Product product = productOpt.get();
+            if (product.getVendor() == null || product.getVendor().getId() == null ||
+                    !product.getVendor().getId().equals(vendorOpt.get().getId())) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("success", false, "message", "You can only manage your own products"));
+            }
+
+            boolean cleared = productRepository.clearDiscount(productId);
+            if (!cleared) {
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("success", false, "message", "Failed to remove discount"));
+            }
+
+            return ResponseEntity.ok(Map.of("success", true, "message", "Discount removed successfully"));
+        } catch (Exception e) {
+            log.error("Error clearing discount: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("success", false, "message", "Error clearing discount", "error", e.getMessage()));
         }
     }
 
