@@ -24,6 +24,10 @@ public class DiscountController {
 		Object subtotalObj = body.get("subtotal");
 		int pointsToUse = body.get("pointsToUse") != null ? Integer.parseInt(body.get("pointsToUse").toString()) : 0;
 		String voucherCode = body.get("voucherCode") != null ? body.get("voucherCode").toString() : null;
+		@SuppressWarnings("unchecked")
+		java.util.List<Map<String, Object>> cartItems = body.get("cartItems") != null ? 
+			(java.util.List<Map<String, Object>>) body.get("cartItems") : null;
+		
 		if (subtotalObj == null) {
 			return ResponseEntity.badRequest().body(Map.of("success", false, "message", "Subtotal is required"));
 		}
@@ -40,7 +44,7 @@ public class DiscountController {
 			return ResponseEntity.status(400).body(Map.of("success", false, "message", "Cannot use more points than available. You have " + rewardPoints + " points."));
 		}
 
-		var result = discountService.calculateDiscount(userId, subtotal, voucherCode);
+		var result = discountService.calculateDiscount(userId, subtotal, voucherCode, cartItems);
 		double pointsDiscount = pointsToUse; // 1 point = 1 unit
 		double total = subtotal - result.amount - pointsDiscount;
 		int pointsEarned = (int) Math.floor(total / 100.0);

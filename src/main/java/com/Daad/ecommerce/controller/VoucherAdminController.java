@@ -43,6 +43,9 @@ public class VoucherAdminController {
             String applicableFor = body.get("applicableFor") != null ? body.get("applicableFor").toString() : "all";
             String validFromStr = (String) body.get("validFrom");
             String validUntilStr = (String) body.get("validUntil");
+            @SuppressWarnings("unchecked")
+            List<String> applicableItemIds = body.get("applicableItemIds") != null ? 
+                (List<String>) body.get("applicableItemIds") : null;
 
             if (code == null || code.isBlank() || type == null || valueObj == null || validFromStr == null || validUntilStr == null) {
                 return ResponseEntity.badRequest().body(Map.of("success", false, "message", "code, type, value, validFrom and validUntil are required"));
@@ -72,6 +75,11 @@ public class VoucherAdminController {
             v.setCreatedBy(adminId);
 
             voucherRepository.insert(v);
+
+            // Add applicable items if provided
+            if (applicableItemIds != null && !applicableItemIds.isEmpty() && !"all".equalsIgnoreCase(applicableFor)) {
+                voucherRepository.addApplicableItems(v.getId(), applicableItemIds);
+            }
 
             Map<String, Object> resp = new HashMap<>();
             resp.put("success", true);
