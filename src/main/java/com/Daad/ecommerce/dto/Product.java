@@ -8,7 +8,9 @@ public class Product {
     
     private String id;
     private String name;
+    private String nameAr; // Arabic name
     private String description;
+    private String descriptionAr; // Arabic description
     private BigDecimal price;
     private Category category; // subcategory when level > 0
     private Category parentCategory; // parent/top-level category
@@ -67,8 +69,14 @@ public class Product {
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
     
+    public String getNameAr() { return nameAr; }
+    public void setNameAr(String nameAr) { this.nameAr = nameAr; }
+    
     public String getDescription() { return description; }
     public void setDescription(String description) { this.description = description; }
+    
+    public String getDescriptionAr() { return descriptionAr; }
+    public void setDescriptionAr(String descriptionAr) { this.descriptionAr = descriptionAr; }
     
     public BigDecimal getPrice() { return price; }
     public void setPrice(BigDecimal price) { this.price = price; }
@@ -242,8 +250,10 @@ public class Product {
     public static class Category {
         private String id;
         private String name;
+        private String nameAr; // Arabic name
         private String slug;
         private String description;
+        private String descriptionAr; // Arabic description
         private String imageUrl;
         private String imagePublicId;
         private String parentCategoryId;
@@ -266,11 +276,17 @@ public class Product {
         public String getName() { return name; }
         public void setName(String name) { this.name = name; }
         
+        public String getNameAr() { return nameAr; }
+        public void setNameAr(String nameAr) { this.nameAr = nameAr; }
+        
         public String getSlug() { return slug; }
         public void setSlug(String slug) { this.slug = slug; }
         
         public String getDescription() { return description; }
         public void setDescription(String description) { this.description = description; }
+        
+        public String getDescriptionAr() { return descriptionAr; }
+        public void setDescriptionAr(String descriptionAr) { this.descriptionAr = descriptionAr; }
         
         public String getImageUrl() { return imageUrl; }
         public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }

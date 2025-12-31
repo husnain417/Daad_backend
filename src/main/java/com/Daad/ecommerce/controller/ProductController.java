@@ -486,7 +486,9 @@ public class ProductController {
             // Create product
             Product product = new Product();
             product.setName(request.getName());
+            product.setNameAr(request.getNameAr());
             product.setDescription(request.getDescription());
+            product.setDescriptionAr(request.getDescriptionAr());
             product.setPrice(request.getPrice());
             
             // Convert gender to DB enum values (Men, Women, Unisex, Male, Female, None)
@@ -1424,8 +1426,16 @@ public class ProductController {
             if (updates.containsKey("name")) {
                 existingProduct.setName((String) updates.get("name"));
             }
+            if (updates.containsKey("nameAr")) {
+                String nameAr = (String) updates.get("nameAr");
+                existingProduct.setNameAr(nameAr != null && !nameAr.trim().isEmpty() ? nameAr.trim() : null);
+            }
             if (updates.containsKey("description")) {
                 existingProduct.setDescription((String) updates.get("description"));
+            }
+            if (updates.containsKey("descriptionAr")) {
+                String descriptionAr = (String) updates.get("descriptionAr");
+                existingProduct.setDescriptionAr(descriptionAr != null && !descriptionAr.trim().isEmpty() ? descriptionAr.trim() : null);
             }
             if (updates.containsKey("price")) {
                 existingProduct.setPrice(new BigDecimal(updates.get("price").toString()));

@@ -24,8 +24,10 @@ public class CategoryRepository {
             Category category = new Category();
             category.setId(rs.getString("id"));
             category.setName(rs.getString("name"));
+            try { category.setNameAr(rs.getString("name_ar")); } catch (SQLException ignored) {}
             category.setSlug(rs.getString("slug"));
             category.setDescription(rs.getString("description"));
+            try { category.setDescriptionAr(rs.getString("description_ar")); } catch (SQLException ignored) {}
             category.setImageUrl(rs.getString("image_url"));
             category.setImagePublicId(rs.getString("image_public_id"));
             category.setParentCategoryId(rs.getString("parent_category_id"));
@@ -79,16 +81,18 @@ public class CategoryRepository {
         
         String sql = """
             INSERT INTO categories (
-                id, name, slug, description, image_url, image_public_id,
+                id, name, name_ar, slug, description, description_ar, image_url, image_public_id,
                 parent_category_id, level, is_active, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
             """;
 
         jdbcTemplate.update(sql,
             UUID.fromString(category.getId()),
             category.getName(),
+            category.getNameAr(),
             category.getSlug(),
             category.getDescription(),
+            category.getDescriptionAr(),
             category.getImageUrl(),
             category.getImagePublicId(),
             category.getParentCategoryId() != null ? UUID.fromString(category.getParentCategoryId()) : null,
@@ -102,7 +106,7 @@ public class CategoryRepository {
     private Category update(Category category) {
         String sql = """
             UPDATE categories SET 
-                name = ?, slug = ?, description = ?, image_url = ?, 
+                name = ?, name_ar = ?, slug = ?, description = ?, description_ar = ?, image_url = ?, 
                 image_public_id = ?, parent_category_id = ?, level = ?, 
                 is_active = ?, updated_at = NOW()
             WHERE id = ?
@@ -110,8 +114,10 @@ public class CategoryRepository {
 
         jdbcTemplate.update(sql,
             category.getName(),
+            category.getNameAr(),
             category.getSlug(),
             category.getDescription(),
+            category.getDescriptionAr(),
             category.getImageUrl(),
             category.getImagePublicId(),
             category.getParentCategoryId() != null ? UUID.fromString(category.getParentCategoryId()) : null,

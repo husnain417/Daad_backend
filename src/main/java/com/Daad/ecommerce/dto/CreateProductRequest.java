@@ -5,7 +5,9 @@ import java.util.List;
 
 public class CreateProductRequest {
     private String name;
+    private String nameAr; // Arabic name
     private String description;
+    private String descriptionAr; // Arabic description
     private BigDecimal price;
     private String category;
     private String subcategory;
@@ -18,8 +20,14 @@ public class CreateProductRequest {
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
     
+    public String getNameAr() { return nameAr; }
+    public void setNameAr(String nameAr) { this.nameAr = nameAr; }
+    
     public String getDescription() { return description; }
     public void setDescription(String description) { this.description = description; }
+    
+    public String getDescriptionAr() { return descriptionAr; }
+    public void setDescriptionAr(String descriptionAr) { this.descriptionAr = descriptionAr; }
     
     public BigDecimal getPrice() { return price; }
     public void setPrice(BigDecimal price) { this.price = price; }

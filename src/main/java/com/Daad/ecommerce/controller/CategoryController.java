@@ -95,7 +95,9 @@ public class CategoryController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Map<String, Object>> addCategory(@RequestBody Map<String, Object> body) {
         String name = body.get("name") != null ? body.get("name").toString().trim() : null;
+        String nameAr = body.get("nameAr") != null ? body.get("nameAr").toString().trim() : null;
         String description = body.get("description") != null ? body.get("description").toString() : null;
+        String descriptionAr = body.get("descriptionAr") != null ? body.get("descriptionAr").toString() : null;
         String parentCategory = body.get("parentCategory") != null ? body.get("parentCategory").toString() : null;
         Integer level = body.get("level") != null ? Integer.valueOf(body.get("level").toString()) : null;
         Boolean isActive = body.get("isActive") != null ? Boolean.valueOf(body.get("isActive").toString()) : Boolean.TRUE;
@@ -150,8 +152,10 @@ public class CategoryController {
 
         Product.Category category = new Product.Category();
         category.setName(name);
+        category.setNameAr(nameAr);
         category.setSlug(slug);
         category.setDescription(description);
+        category.setDescriptionAr(descriptionAr);
         category.setParentCategoryId(parentId);
         category.setLevel(calculatedLevel);
         category.setIsActive(isActive);
@@ -281,9 +285,17 @@ public class CategoryController {
             }
         }
 
+        // Handle Arabic name
+        if (updates.containsKey("nameAr")) {
+            category.setNameAr(updates.get("nameAr") != null ? updates.get("nameAr").toString().trim() : null);
+        }
+
         // Other simple fields
         if (updates.containsKey("description")) {
             category.setDescription(updates.get("description") != null ? updates.get("description").toString() : null);
+        }
+        if (updates.containsKey("descriptionAr")) {
+            category.setDescriptionAr(updates.get("descriptionAr") != null ? updates.get("descriptionAr").toString() : null);
         }
         if (updates.containsKey("isActive")) {
             category.setIsActive(updates.get("isActive") != null ? Boolean.valueOf(updates.get("isActive").toString()) : null);

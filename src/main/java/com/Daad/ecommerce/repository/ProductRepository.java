@@ -24,7 +24,9 @@ public class ProductRepository {
             Product product = new Product();
             product.setId(rs.getString("id"));
             product.setName(rs.getString("name"));
+            try { product.setNameAr(rs.getString("name_ar")); } catch (SQLException ignored) {}
             product.setDescription(rs.getString("description"));
+            try { product.setDescriptionAr(rs.getString("description_ar")); } catch (SQLException ignored) {}
             product.setPrice(rs.getBigDecimal("price"));
             product.setGender(rs.getString("gender"));
             try { product.setAgeRange(rs.getString("age_range")); } catch (SQLException ignored) {}
@@ -363,10 +365,10 @@ public class ProductRepository {
     private Product insert(Product product) {
         String sql = """
             INSERT INTO products (
-                name, description, price, category_id, vendor_id, gender, age_range,
+                name, name_ar, description, description_ar, price, category_id, vendor_id, gender, age_range,
                 total_stock, discount_percentage, discount_valid_until,
                 average_rating, status, is_active, is_customers_also_bought, reference_id, created_at, updated_at
-            ) VALUES (?, ?, ?, ?::uuid, ?::uuid, ?::product_gender, ?, ?, ?, ?, ?, ?::product_status, ?, ?, ?, NOW(), NOW())
+            ) VALUES (?, ?, ?, ?, ?, ?::uuid, ?::uuid, ?::product_gender, ?, ?, ?, ?, ?, ?::product_status, ?, ?, ?, NOW(), NOW())
             """;
 
         // If referenceId is provided we include it in the INSERT; build SQL accordingly
@@ -384,7 +386,9 @@ public class ProductRepository {
         // Execute insert using UUID objects (jdbcTemplate will map them)
         jdbcTemplate.update(sql,
             product.getName(),
+            product.getNameAr(),
             product.getDescription(),
+            product.getDescriptionAr(),
             product.getPrice(),
             categoryUuid,
             vendorUuid,
@@ -431,7 +435,7 @@ public class ProductRepository {
     private Product update(Product product) {
         String sql = """
             UPDATE products SET 
-                name = ?, description = ?, price = ?, category_id = ?, vendor_id = ?,
+                name = ?, name_ar = ?, description = ?, description_ar = ?, price = ?, category_id = ?, vendor_id = ?,
                 gender = ?::product_gender, age_range = ?, total_stock = ?, discount_percentage = ?,
                 discount_valid_until = ?, average_rating = ?, status = ?::product_status,
                 is_active = ?, is_customers_also_bought = ?, reference_id = ?, updated_at = NOW()
@@ -452,7 +456,9 @@ public class ProductRepository {
 
         jdbcTemplate.update(sql,
             product.getName(),
+            product.getNameAr(),
             product.getDescription(),
+            product.getDescriptionAr(),
             product.getPrice(),
             categoryUuid,
             vendorUuid,
@@ -929,10 +935,10 @@ public class ProductRepository {
     public boolean updateProduct(Product product) {
         String sql = """
             UPDATE products SET 
-                name = ?, description = ?, price = ?, category_id = ?, vendor_id = ?, 
-                gender = ?::product_gender, total_stock = ?, discount_percentage = ?, 
+                name = ?, name_ar = ?, description = ?, description_ar = ?, price = ?, category_id = ?, vendor_id = ?, 
+                gender = ?::product_gender, age_range = ?, total_stock = ?, discount_percentage = ?, 
                 discount_valid_until = ?, average_rating = ?, status = ?::product_status, 
-                is_active = ?, is_customers_also_bought = ?, updated_at = NOW()
+                is_active = ?, is_customers_also_bought = ?, reference_id = ?, updated_at = NOW()
             WHERE id = ?
             """;
 
@@ -950,11 +956,14 @@ public class ProductRepository {
 
         int rowsAffected = jdbcTemplate.update(sql,
             product.getName(),
+            product.getNameAr(),
             product.getDescription(),
+            product.getDescriptionAr(),
             product.getPrice(),
             categoryUuid,
             vendorUuid,
             normalizeProductGender(product.getGender()),
+            product.getAgeRange(),
             product.getTotalStock(),
             product.getDiscount() != null ? product.getDiscount().getDiscountValue() : null,
             discountUntil,
@@ -962,6 +971,7 @@ public class ProductRepository {
             product.getStatus(),
             product.getIsActive(),
             product.getIsCustomersAlsoBought(),
+            product.getReferenceId(),
             idUuid
         );
         
@@ -1145,6 +1155,7 @@ public class ProductRepository {
             SELECT 
                 p.id,
                 p.name,
+                p.name_ar,
                 p.price,
                 p.status,
                 p.gender,
@@ -1154,8 +1165,10 @@ public class ProductRepository {
                     WHEN p.description IS NULL THEN NULL 
                     ELSE LEFT(REGEXP_REPLACE(p.description, '\\s+', ' ', 'g'), 120)
                 END AS short_description,
+                p.description_ar,
                 COALESCE(imgs.image_urls, ARRAY[]::text[]) AS image_urls,
-                COALESCE(inv.colors, ARRAY[]::text[]) AS colors
+                COALESCE(inv.colors, ARRAY[]::text[]) AS colors,
+                COALESCE(inv_sizes.sizes, ARRAY[]::text[]) AS available_sizes
             FROM products p
             LEFT JOIN categories c ON p.category_id = c.id
             LEFT JOIN LATERAL (
@@ -1175,6 +1188,14 @@ public class ProductRepository {
                     ORDER BY color
                 ) AS colors
             ) inv ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT ARRAY(
+                    SELECT DISTINCT "size"
+                    FROM product_inventory pi
+                    WHERE pi.product_id = p.id AND pi.stock > 0
+                    ORDER BY "size"
+                ) AS sizes
+            ) inv_sizes ON TRUE
             WHERE p.is_active = TRUE
         """);
 
@@ -1242,12 +1263,14 @@ public class ProductRepository {
             Map<String, Object> m = new HashMap<>();
             m.put("id", rs.getString("id"));
             m.put("name", rs.getString("name"));
+            try { m.put("nameAr", rs.getString("name_ar")); } catch (Exception ignored) {}
             m.put("price", rs.getBigDecimal("price"));
             m.put("status", rs.getString("status"));
             try { m.put("gender", rs.getString("gender")); } catch (Exception ignored) {}
             try { m.put("ageRange", rs.getString("age_range")); } catch (Exception ignored) {}
             m.put("slug", rs.getString("category_slug"));
             m.put("shortDescription", rs.getString("short_description"));
+            try { m.put("descriptionAr", rs.getString("description_ar")); } catch (Exception ignored) {}
             try {
                 java.sql.Array colorsArr = rs.getArray("colors");
                 if (colorsArr != null) {
@@ -1257,6 +1280,17 @@ public class ProductRepository {
                         if (o != null) colors.add(o.toString());
                     }
                     m.put("colors", colors);
+                }
+            } catch (Exception ignored) {}
+            try {
+                java.sql.Array sizesArr = rs.getArray("available_sizes");
+                if (sizesArr != null) {
+                    Object[] arr = (Object[]) sizesArr.getArray();
+                    List<String> sizes = new ArrayList<>();
+                    for (Object o : arr) {
+                        if (o != null) sizes.add(o.toString());
+                    }
+                    m.put("availableSizes", sizes);
                 }
             } catch (Exception ignored) {}
             // Convert image_urls (text[]) to List<String>
