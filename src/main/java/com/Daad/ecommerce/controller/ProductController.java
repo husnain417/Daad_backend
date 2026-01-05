@@ -661,28 +661,34 @@ public class ProductController {
             }
             
             // Check if user has VENDOR or ADMIN role
-            boolean isVendorOrAdmin = authentication.getAuthorities().stream()
-                .anyMatch(a -> a.getAuthority().equals("ROLE_VENDOR") || a.getAuthority().equals("ROLE_ADMIN"));
+            boolean isAdmin = authentication.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+            boolean isVendor = authentication.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_VENDOR"));
             
-            if (!isVendorOrAdmin) {
+            if (!isAdmin && !isVendor) {
                 return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("success", false, "message", "Access denied. Vendor or Admin role required."));
             }
             
             String userId = authentication.getName();
-            Optional<Vendor> vendorOpt = vendorRepository.findByUserId(userId);
-            if (vendorOpt.isEmpty()) {
-                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("success", false, "message", "Vendor not found"));
-            }
-
             Optional<Product> productOpt = productRepository.findById(productId);
             if (productOpt.isEmpty()) {
                 return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("success", false, "message", "Product not found"));
             }
 
             Product product = productOpt.get();
-            if (product.getVendor() == null || product.getVendor().getId() == null ||
-                    !product.getVendor().getId().equals(vendorOpt.get().getId())) {
-                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("success", false, "message", "You can only manage your own products"));
+            
+            // If user is vendor, check ownership. Admins can manage any product.
+            if (isVendor && !isAdmin) {
+                Optional<Vendor> vendorOpt = vendorRepository.findByUserId(userId);
+                if (vendorOpt.isEmpty()) {
+                    return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("success", false, "message", "Vendor not found"));
+                }
+                
+                if (product.getVendor() == null || product.getVendor().getId() == null ||
+                        !product.getVendor().getId().equals(vendorOpt.get().getId())) {
+                    return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("success", false, "message", "You can only manage your own products"));
+                }
             }
 
             Object val = body.get("discountValue");
@@ -796,28 +802,34 @@ public class ProductController {
             }
             
             // Check if user has VENDOR or ADMIN role
-            boolean isVendorOrAdmin = authentication.getAuthorities().stream()
-                .anyMatch(a -> a.getAuthority().equals("ROLE_VENDOR") || a.getAuthority().equals("ROLE_ADMIN"));
+            boolean isAdmin = authentication.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+            boolean isVendor = authentication.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_VENDOR"));
             
-            if (!isVendorOrAdmin) {
+            if (!isAdmin && !isVendor) {
                 return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("success", false, "message", "Access denied. Vendor or Admin role required."));
             }
             
             String userId = authentication.getName();
-            Optional<Vendor> vendorOpt = vendorRepository.findByUserId(userId);
-            if (vendorOpt.isEmpty()) {
-                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("success", false, "message", "Vendor not found"));
-            }
-
             Optional<Product> productOpt = productRepository.findById(productId);
             if (productOpt.isEmpty()) {
                 return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("success", false, "message", "Product not found"));
             }
 
             Product product = productOpt.get();
-            if (product.getVendor() == null || product.getVendor().getId() == null ||
-                    !product.getVendor().getId().equals(vendorOpt.get().getId())) {
-                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("success", false, "message", "You can only manage your own products"));
+            
+            // If user is vendor, check ownership. Admins can manage any product.
+            if (isVendor && !isAdmin) {
+                Optional<Vendor> vendorOpt = vendorRepository.findByUserId(userId);
+                if (vendorOpt.isEmpty()) {
+                    return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("success", false, "message", "Vendor not found"));
+                }
+                
+                if (product.getVendor() == null || product.getVendor().getId() == null ||
+                        !product.getVendor().getId().equals(vendorOpt.get().getId())) {
+                    return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("success", false, "message", "You can only manage your own products"));
+                }
             }
 
             boolean cleared = productRepository.clearDiscount(productId);
