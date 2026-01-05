@@ -9,6 +9,7 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.http.HttpMethod;
 
 import com.Daad.ecommerce.security.JwtAuthenticationFilter;
 
@@ -34,13 +35,16 @@ public class SecurityConfig {
                                 "/api/users/register", "/api/users/login", "/api/users/google-auth",
                                 "/api/users/password-forgot", "/api/users/resend-otp", "/api/users/verify-otp", "/api/users/set-new-password",
                                 "/api/auth/login", // allow auth login endpoint
-                                "/api/categories/**", "/api/products/**", "/api/brands/**",
+                                "/api/categories/**", "/api/brands/**",
                                 "/api/cart/**", // allow cart endpoints for guests
                                 "/api/orders/create-guest", // allow guest order creation
                                 "/api/ratings/**", // allow review/rating endpoints for guests
                                 "/api/payments/paymob/webhook", // allow payment webhook
                                 "/api/payments/paymob/create-session" // allow payment session creation
                         ).permitAll()
+                        // Allow GET requests to products without authentication (public viewing)
+                        .requestMatchers(HttpMethod.GET, "/api/products/**").permitAll()
+                        // All other product endpoints (PUT, POST, DELETE) require authentication
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);

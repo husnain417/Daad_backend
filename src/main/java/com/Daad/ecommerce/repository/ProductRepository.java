@@ -11,7 +11,9 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.util.stream.Collectors;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 @Repository
 public class ProductRepository {
     
@@ -979,19 +981,32 @@ public class ProductRepository {
     }
 
     public boolean updateDiscount(String productId, BigDecimal discountPercentage, Timestamp discountValidUntil, boolean isActive) {
-        String sql = """
-            UPDATE products
-            SET discount_percentage = ?, 
-                discount_valid_until = ?, 
-                updated_at = NOW()
-            WHERE id = ?::uuid
-            """;
+        try {
+            String sql = """
+                UPDATE products
+                SET discount_percentage = ?, 
+                    discount_valid_until = ?, 
+                    updated_at = NOW()
+                WHERE id = ?::uuid
+                """;
 
-        BigDecimal pct = (isActive && discountPercentage != null) ? discountPercentage : BigDecimal.ZERO;
-        Timestamp end = (isActive) ? discountValidUntil : null;
+            BigDecimal pct = (isActive && discountPercentage != null) ? discountPercentage : BigDecimal.ZERO;
+            Timestamp end = (isActive) ? discountValidUntil : null;
 
-        int rows = jdbcTemplate.update(sql, pct, end, productId);
-        return rows > 0;
+            log.debug("Updating discount for product {}: percentage={}, validUntil={}, isActive={}", 
+                productId, pct, end, isActive);
+            
+            int rows = jdbcTemplate.update(sql, pct, end, productId);
+            
+            if (rows == 0) {
+                log.warn("No rows updated for product discount. Product ID: {}", productId);
+            }
+            
+            return rows > 0;
+        } catch (Exception e) {
+            log.error("Error updating discount for product {}: {}", productId, e.getMessage(), e);
+            throw e;
+        }
     }
 
     public boolean clearDiscount(String productId) {
@@ -1160,6 +1175,8 @@ public class ProductRepository {
                 p.status,
                 p.gender,
                 p.age_range,
+                p.discount_percentage,
+                p.discount_valid_until,
                 c.slug AS category_slug,
                 CASE 
                     WHEN p.description IS NULL THEN NULL 
@@ -1303,6 +1320,32 @@ public class ProductRepository {
                 }
             }
             m.put("images", urls);
+            
+            // Add discount information if available
+            try {
+                BigDecimal discountPercentage = rs.getBigDecimal("discount_percentage");
+                Timestamp discountValidUntil = rs.getTimestamp("discount_valid_until");
+                
+                if (discountPercentage != null && discountPercentage.compareTo(BigDecimal.ZERO) > 0) {
+                    // Check if discount is still valid
+                    boolean isActive = true;
+                    if (discountValidUntil != null) {
+                        isActive = discountValidUntil.after(new java.util.Date());
+                    }
+                    
+                    if (isActive) {
+                        Map<String, Object> discount = new HashMap<>();
+                        discount.put("discountValue", discountPercentage);
+                        discount.put("discountType", "percentage"); // Default to percentage since DB only stores percentage
+                        if (discountValidUntil != null) {
+                            discount.put("endDate", discountValidUntil.toInstant().toString());
+                        }
+                        discount.put("isActive", true);
+                        m.put("discount", discount);
+                    }
+                }
+            } catch (Exception ignored) {}
+            
             return m;
         }, params.toArray());
     }

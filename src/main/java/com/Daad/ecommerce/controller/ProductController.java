@@ -642,12 +642,32 @@ public class ProductController {
     // --- Discount Management (Vendor only) ---
 
     @PutMapping("/{productId}/discount")
-    @PreAuthorize("hasRole('VENDOR')")
     public ResponseEntity<Map<String, Object>> setDiscount(
             @PathVariable String productId,
             @RequestBody Map<String, Object> body,
             Authentication authentication) {
+        log.info("=== DISCOUNT UPDATE REQUEST ===");
+        log.info("Product ID: {}", productId);
+        log.info("Request body: {}", body);
+        log.info("Authentication: {}", authentication != null ? authentication.getName() : "NULL");
+        if (authentication != null) {
+            log.info("Authorities: {}", authentication.getAuthorities());
+        }
         try {
+            // Manual authorization check
+            if (authentication == null || authentication.getName() == null) {
+                log.warn("Authentication failed: authentication is null or name is null");
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("success", false, "message", "Authentication required"));
+            }
+            
+            // Check if user has VENDOR or ADMIN role
+            boolean isVendorOrAdmin = authentication.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_VENDOR") || a.getAuthority().equals("ROLE_ADMIN"));
+            
+            if (!isVendorOrAdmin) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("success", false, "message", "Access denied. Vendor or Admin role required."));
+            }
+            
             String userId = authentication.getName();
             Optional<Vendor> vendorOpt = vendorRepository.findByUserId(userId);
             if (vendorOpt.isEmpty()) {
@@ -711,37 +731,78 @@ public class ProductController {
             Timestamp endTs = null;
             if (endDateObj != null && !endDateObj.toString().isBlank()) {
                 try {
-                    endTs = Timestamp.valueOf(java.time.LocalDateTime.parse(endDateObj.toString()));
+                    String dateStr = endDateObj.toString().trim();
+                    // Handle ISO-8601 format with timezone (e.g., "2026-01-31T05:55:00.000Z")
+                    if (dateStr.endsWith("Z") || dateStr.contains("+") || dateStr.contains("-") && dateStr.length() > 19) {
+                        // Parse as Instant and convert to Timestamp
+                        java.time.Instant instant = java.time.Instant.parse(dateStr);
+                        endTs = Timestamp.from(instant);
+                    } else {
+                        // Parse as LocalDateTime (no timezone)
+                        java.time.LocalDateTime localDateTime = java.time.LocalDateTime.parse(dateStr);
+                        endTs = Timestamp.valueOf(localDateTime);
+                    }
                 } catch (Exception e) {
-                    return ResponseEntity.badRequest().body(Map.of("success", false, "message", "Invalid endDate format; expected ISO-8601 LocalDateTime"));
+                    log.error("Error parsing endDate: {}", e.getMessage(), e);
+                    return ResponseEntity.badRequest().body(Map.of("success", false, "message", "Invalid endDate format; expected ISO-8601 format (e.g., 2026-01-31T05:55:00.000Z)"));
                 }
             }
 
+            log.info("Attempting to update discount for product {}: percentage={}, validUntil={}, isActive={}", 
+                productId, pct, endTs, isActive);
+            
             boolean updated = productRepository.updateDiscount(productId, pct, endTs, isActive);
             if (!updated) {
-                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("success", false, "message", "Failed to update discount"));
+                log.error("Failed to update discount for product {}. No rows were updated.", productId);
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("success", false, "message", "Failed to update discount. Product may not exist or update failed."));
             }
+            
+            log.info("Successfully updated discount for product {}", productId);
 
-            return ResponseEntity.ok(Map.of(
-                "success", true,
-                "message", "Discount updated successfully",
-                "discountPercentage", pct,
-                "discountType", discountType,
-                "discountValidUntil", endTs,
-                "isActive", isActive
-            ));
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("message", "Discount updated successfully");
+            response.put("discountValue", discountValue);
+            response.put("discountPercentage", pct);
+            response.put("discountType", discountType);
+            if (endTs != null) {
+                response.put("discountValidUntil", endTs);
+            }
+            response.put("isActive", isActive);
+            
+            return ResponseEntity.ok(response);
         } catch (Exception e) {
-            log.error("Error setting discount: {}", e.getMessage(), e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of("success", false, "message", "Error setting discount", "error", e.getMessage()));
+            log.error("Error setting discount for product {}: {}", productId, e.getMessage(), e);
+            String errorMessage = "Error setting discount: " + e.getMessage();
+            if (e.getCause() != null) {
+                errorMessage += " (Cause: " + e.getCause().getMessage() + ")";
+            }
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
+                "success", false, 
+                "message", errorMessage,
+                "error", e.getClass().getSimpleName()
+            ));
         }
     }
 
     @DeleteMapping("/{productId}/discount")
-    @PreAuthorize("hasRole('VENDOR')")
     public ResponseEntity<Map<String, Object>> clearDiscount(
             @PathVariable String productId,
             Authentication authentication) {
         try {
+            // Manual authorization check
+            if (authentication == null || authentication.getName() == null) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("success", false, "message", "Authentication required"));
+            }
+            
+            // Check if user has VENDOR or ADMIN role
+            boolean isVendorOrAdmin = authentication.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_VENDOR") || a.getAuthority().equals("ROLE_ADMIN"));
+            
+            if (!isVendorOrAdmin) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("success", false, "message", "Access denied. Vendor or Admin role required."));
+            }
+            
             String userId = authentication.getName();
             Optional<Vendor> vendorOpt = vendorRepository.findByUserId(userId);
             if (vendorOpt.isEmpty()) {

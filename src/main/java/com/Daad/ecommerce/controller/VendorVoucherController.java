@@ -47,67 +47,10 @@ public class VendorVoucherController {
 
     @PostMapping
     public ResponseEntity<?> createVoucher(@RequestBody Map<String, Object> body) {
-        try {
-            String vendorUserId = SecurityUtils.currentUserId();
-            if (vendorUserId == null) {
-                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(Map.of("success", false, "message", "Unauthorized"));
-            }
-
-            String code = (String) body.get("code");
-            String type = (String) body.get("type"); // percentage | fixed
-            Object valueObj = body.get("value");
-            Object minOrderObj = body.get("minimumOrder");
-            String applicableFor = body.get("applicableFor") != null ? body.get("applicableFor").toString() : "vendor";
-            String validFromStr = (String) body.get("validFrom");
-            String validUntilStr = (String) body.get("validUntil");
-            @SuppressWarnings("unchecked")
-            List<String> applicableItemIds = body.get("applicableItemIds") != null ? 
-                (List<String>) body.get("applicableItemIds") : null;
-
-            if (code == null || code.isBlank() || type == null || valueObj == null || validFromStr == null || validUntilStr == null) {
-                return ResponseEntity.badRequest().body(Map.of("success", false, "message", "code, type, value, validFrom and validUntil are required"));
-            }
-
-            double value = Double.parseDouble(valueObj.toString());
-            double minOrder = minOrderObj != null ? Double.parseDouble(minOrderObj.toString()) : 0.0;
-
-            Voucher v = new Voucher();
-            v.setCode(code.trim().toUpperCase());
-            v.setType(type.toLowerCase());
-            v.setValue(value);
-            v.setMinimumOrder(minOrder);
-
-            if (body.get("maximumDiscount") != null) {
-                v.setMaximumDiscount(Double.parseDouble(body.get("maximumDiscount").toString()));
-            }
-            if (body.get("usageLimit") != null) {
-                v.setUsageLimit(Integer.parseInt(body.get("usageLimit").toString()));
-            }
-            v.setApplicableFor(applicableFor);
-            v.setValidFrom(LocalDateTime.parse(validFromStr).toInstant(ZoneOffset.UTC));
-            v.setValidUntil(LocalDateTime.parse(validUntilStr).toInstant(ZoneOffset.UTC));
-            v.setActive(true);
-            v.setCreatedBy(vendorUserId);
-
-            voucherRepository.insert(v);
-
-            // Add applicable items if provided
-            if (applicableItemIds != null && !applicableItemIds.isEmpty() && !"all".equalsIgnoreCase(applicableFor) && !"vendor".equalsIgnoreCase(applicableFor)) {
-                voucherRepository.addApplicableItems(v.getId(), applicableItemIds);
-            }
-
-            Map<String, Object> resp = new HashMap<>();
-            resp.put("success", true);
-            resp.put("message", "Voucher created");
-            resp.put("data", v);
-            return ResponseEntity.status(HttpStatus.CREATED).body(resp);
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
-                    "success", false,
-                    "message", "Failed to create voucher: " + e.getMessage()
-            ));
-        }
+        // Vendors are not allowed to create vouchers - only admins can
+        // Vendors should use product discounts instead (via /api/products/{productId}/discount)
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+            .body(Map.of("success", false, "message", "Vendors cannot create vouchers. Please use product discounts instead."));
     }
 
     @PostMapping("/{voucherId}/deactivate")

@@ -39,8 +39,20 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
         String authHeader = request.getHeader("Authorization");
-        if (authHeader != null && authHeader.startsWith("Bearer ")) {
-            String token = authHeader.substring(7);
+        String path = request.getRequestURI();
+        
+        // Log authentication attempts for discount endpoints
+        if (path != null && path.contains("/discount")) {
+            System.out.println("🔐 JWT Filter - Processing request to: " + path);
+            System.out.println("🔐 JWT Filter - Authorization header present: " + (authHeader != null));
+            if (authHeader != null) {
+                System.out.println("🔐 JWT Filter - Authorization header value: " + (authHeader.length() > 20 ? authHeader.substring(0, 20) + "..." : authHeader));
+                System.out.println("🔐 JWT Filter - Starts with 'Bearer ': " + authHeader.startsWith("Bearer "));
+            }
+        }
+        
+        if (authHeader != null && authHeader.trim().startsWith("Bearer ")) {
+            String token = authHeader.trim().substring(7).trim();
             try {
                 Claims claims = Jwts.parserBuilder().setSigningKey(accessSecretKey).build().parseClaimsJws(token).getBody();
                 String userId = claims.get("id", String.class);
@@ -64,7 +76,23 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 
                 Authentication auth = new UsernamePasswordAuthenticationToken(userId, null, authorities);
                 SecurityContextHolder.getContext().setAuthentication(auth);
-            } catch (Exception ignored) {
+                
+                // Log successful authentication for discount endpoints
+                if (path != null && path.contains("/discount")) {
+                    System.out.println("✅ JWT Filter - Authentication successful for user: " + userId + ", role: " + role);
+                    System.out.println("✅ JWT Filter - Authorities: " + authorities);
+                }
+            } catch (Exception e) {
+                // Log JWT parsing errors for discount endpoints
+                if (path != null && path.contains("/discount")) {
+                    System.out.println("❌ JWT Filter - Token validation failed: " + e.getMessage());
+                    e.printStackTrace();
+                }
+            }
+        } else {
+            // Log missing token for discount endpoints
+            if (path != null && path.contains("/discount")) {
+                System.out.println("❌ JWT Filter - No Authorization header or invalid format");
             }
         }
         filterChain.doFilter(request, response);
