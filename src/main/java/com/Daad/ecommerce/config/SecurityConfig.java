@@ -40,7 +40,8 @@ public class SecurityConfig {
                                 "/api/orders/create-guest", // allow guest order creation
                                 "/api/ratings/**", // allow review/rating endpoints for guests
                                 "/api/payments/paymob/webhook", // allow payment webhook
-                                "/api/payments/paymob/create-session" // allow payment session creation
+                                "/api/payments/paymob/create-session", // allow payment session creation
+                                "/api/discount/calculate-preview" // allow voucher code validation for guests
                         ).permitAll()
                         // Allow GET requests to products without authentication (public viewing)
                         .requestMatchers(HttpMethod.GET, "/api/products/**").permitAll()

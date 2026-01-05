@@ -189,6 +189,17 @@ public class OrderController {
 			double discount = orderData.get("discount") != null ? Double.parseDouble(orderData.get("discount").toString()) : 0.0;
 			@SuppressWarnings("unchecked")
 			Map<String, Object> discountInfo = (Map<String, Object>) orderData.getOrDefault("discountInfo", Map.of("amount", 0, "reasons", List.of(), "pointsUsed", 0));
+			// Get voucher code from request or discountInfo
+			String voucherCode = orderData.get("voucherCode") != null ? orderData.get("voucherCode").toString() : null;
+			if (voucherCode == null || voucherCode.isBlank()) {
+				// Try to extract from discountInfo reasons
+				if (discountInfo.get("reasons") instanceof List) {
+					List<?> reasons = (List<?>) discountInfo.get("reasons");
+					if (!reasons.isEmpty()) {
+						voucherCode = reasons.get(0).toString();
+					}
+				}
+			}
 			String paymentMethod = orderData.get("paymentMethod").toString();
 
 			String userId = authenticated ? SecurityUtils.currentUserId() : null;
@@ -277,7 +288,13 @@ public class OrderController {
 			order.setSubtotal(subtotal);
 			order.setShippingCharges(shippingCharges);
 			order.setDiscount(discount);
-			order.setDiscountCode(discountInfo.get("reasons") instanceof List ? String.join(", ", ((List<?>) discountInfo.get("reasons")).stream().map(String::valueOf).collect(Collectors.toList())) : "");
+			// Save voucher code if present
+			if (voucherCode != null && !voucherCode.isBlank()) {
+				order.setDiscountCode(voucherCode);
+			} else {
+				// Fallback to old method if voucher code not directly provided
+				order.setDiscountCode(discountInfo.get("reasons") instanceof List ? String.join(", ", ((List<?>) discountInfo.get("reasons")).stream().map(String::valueOf).collect(Collectors.toList())) : "");
+			}
 			order.setTotal(total);
 			order.setPointsUsed(pointsToUse);
 			order.setPointsEarned(pointsEarned);

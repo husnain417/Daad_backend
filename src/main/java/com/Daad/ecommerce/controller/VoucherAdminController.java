@@ -67,9 +67,64 @@ public class VoucherAdminController {
                 v.setUsageLimit(Integer.parseInt(body.get("usageLimit").toString()));
             }
             v.setApplicableFor(applicableFor);
-            v.setValidFrom(LocalDateTime.parse(validFromStr).toInstant(ZoneOffset.UTC));
-            v.setValidUntil(LocalDateTime.parse(validUntilStr).toInstant(ZoneOffset.UTC));
+            
+            // Parse dates - handle both with and without timezone
+            Instant now = Instant.now();
+            try {
+                // Try parsing as LocalDateTime first (datetime-local format from frontend)
+                // datetime-local inputs are in the user's local timezone, so we need to interpret them
+                // as local time and convert to UTC
+                LocalDateTime validFromLocal = LocalDateTime.parse(validFromStr);
+                LocalDateTime validUntilLocal = LocalDateTime.parse(validUntilStr);
+                
+                // Get the server's default timezone (or use UTC if not available)
+                java.time.ZoneId serverZone = java.time.ZoneId.systemDefault();
+                
+                // Convert LocalDateTime to Instant using server timezone, then to UTC
+                Instant validFromInstant = validFromLocal.atZone(serverZone).toInstant();
+                Instant validUntilInstant = validUntilLocal.atZone(serverZone).toInstant();
+                
+                // If validFrom is in the past, set it to now (voucher should be valid immediately)
+                if (validFromInstant.isBefore(now)) {
+                    System.out.println("Warning: validFrom is in the past, setting to now");
+                    validFromInstant = now;
+                }
+                
+                v.setValidFrom(validFromInstant);
+                v.setValidUntil(validUntilInstant);
+                
+                System.out.println("Parsed dates (server timezone: " + serverZone + "):");
+                System.out.println("  validFrom (local): " + validFromLocal + " -> UTC: " + validFromInstant);
+                System.out.println("  validUntil (local): " + validUntilLocal + " -> UTC: " + validUntilInstant);
+            } catch (Exception e) {
+                // If parsing fails, try with ISO format (includes timezone)
+                try {
+                    Instant validFromInstant = java.time.Instant.parse(validFromStr);
+                    Instant validUntilInstant = java.time.Instant.parse(validUntilStr);
+                    
+                    // If validFrom is in the past, set it to now
+                    if (validFromInstant.isBefore(now)) {
+                        System.out.println("Warning: validFrom is in the past, setting to now");
+                        validFromInstant = now;
+                    }
+                    
+                    v.setValidFrom(validFromInstant);
+                    v.setValidUntil(validUntilInstant);
+                } catch (Exception e2) {
+                    return ResponseEntity.badRequest().body(Map.of(
+                        "success", false,
+                        "message", "Invalid date format. Expected format: YYYY-MM-DDTHH:mm (e.g., 2026-01-05T13:25) or ISO-8601 with timezone"
+                    ));
+                }
+            }
+            
+            // Ensure voucher is set as active
             v.setActive(true);
+            
+            // Log for debugging
+            System.out.println("Creating voucher with isActive: " + v.isActive());
+            System.out.println("Valid from: " + v.getValidFrom());
+            System.out.println("Valid until: " + v.getValidUntil());
 
             String adminId = SecurityUtils.currentUserId();
             v.setCreatedBy(adminId);

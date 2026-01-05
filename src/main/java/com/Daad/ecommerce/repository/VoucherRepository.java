@@ -51,19 +51,61 @@ public class VoucherRepository {
     };
 
     public Optional<Voucher> findActiveByCode(String code, Instant now) {
+        // Normalize spaces: replace multiple spaces with single space, trim
+        String normalizedCode = code.trim().replaceAll("\\s+", " ");
+        
+        // Use case-insensitive matching and normalize spaces in SQL
         String sql = """
                 SELECT * FROM vouchers
-                WHERE code = ? AND is_active = TRUE
+                WHERE UPPER(TRIM(REGEXP_REPLACE(code, '\\s+', ' ', 'g'))) = UPPER(TRIM(REGEXP_REPLACE(?, '\\s+', ' ', 'g')))
+                  AND is_active = TRUE
                   AND valid_from <= ? AND valid_until >= ?
                 LIMIT 1
                 """;
-        List<Voucher> list = jdbcTemplate.query(sql, voucherRowMapper, code, Timestamp.from(now), Timestamp.from(now));
+        
+        System.out.println("=== FINDING ACTIVE VOUCHER ===");
+        System.out.println("Searching for code: " + normalizedCode);
+        System.out.println("Current time: " + now);
+        
+        List<Voucher> list = jdbcTemplate.query(sql, voucherRowMapper, normalizedCode, Timestamp.from(now), Timestamp.from(now));
+        
+        if (list.isEmpty()) {
+            System.out.println("❌ No active voucher found for code: " + normalizedCode);
+            // Try to find any voucher with this code (for debugging)
+            Optional<Voucher> anyVoucher = findByCode(normalizedCode);
+            if (anyVoucher.isPresent()) {
+                Voucher v = anyVoucher.get();
+                System.out.println("   Found voucher but not active/valid:");
+                System.out.println("     Code: " + v.getCode());
+                System.out.println("     isActive: " + v.isActive());
+                System.out.println("     validFrom: " + v.getValidFrom());
+                System.out.println("     validUntil: " + v.getValidUntil());
+            } else {
+                System.out.println("   No voucher found at all with code: " + normalizedCode);
+            }
+        } else {
+            System.out.println("✅ Found active voucher: " + list.get(0).getCode());
+        }
+        
         return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
     }
 
     public List<Voucher> findAll() {
         String sql = "SELECT * FROM vouchers ORDER BY created_at DESC";
         return jdbcTemplate.query(sql, voucherRowMapper);
+    }
+
+    // Find voucher by code without date/active checks (for debugging)
+    public Optional<Voucher> findByCode(String code) {
+        // Normalize spaces for matching
+        String normalizedCode = code.trim().replaceAll("\\s+", " ");
+        String sql = """
+                SELECT * FROM vouchers 
+                WHERE UPPER(TRIM(REGEXP_REPLACE(code, '\\s+', ' ', 'g'))) = UPPER(TRIM(REGEXP_REPLACE(?, '\\s+', ' ', 'g')))
+                LIMIT 1
+                """;
+        List<Voucher> list = jdbcTemplate.query(sql, voucherRowMapper, normalizedCode);
+        return list.isEmpty() ? Optional.empty() : Optional.of(list.get(0));
     }
 
     // Find vouchers created by a specific user (vendor)
@@ -91,6 +133,10 @@ public class VoucherRepository {
         voucher.setCreatedAt(now);
         voucher.setUpdatedAt(now);
 
+        // Ensure isActive is explicitly set to true for new vouchers (default behavior)
+        // The controller should have already set this, but we ensure it here as well
+        voucher.setActive(true);
+
         String sql = """
                 INSERT INTO vouchers (
                     id, code, type, value, minimum_order, maximum_discount,
@@ -99,7 +145,16 @@ public class VoucherRepository {
                 ) VALUES (?::uuid, ?, ?::voucher_type, ?, ?, ?, ?, 0, ?::voucher_applicable,
                           ?, ?, ?, ?::uuid, ?, ?)
                 """;
-        jdbcTemplate.update(sql,
+        
+        // Log for debugging
+        System.out.println("=== INSERTING VOUCHER ===");
+        System.out.println("Voucher ID: " + voucher.getId());
+        System.out.println("Voucher Code: " + voucher.getCode());
+        System.out.println("isActive value: " + voucher.isActive());
+        System.out.println("Valid From: " + voucher.getValidFrom());
+        System.out.println("Valid Until: " + voucher.getValidUntil());
+        
+        int rowsAffected = jdbcTemplate.update(sql,
                 UUID.fromString(voucher.getId()),
                 voucher.getCode(),
                 voucher.getType(),
@@ -110,11 +165,45 @@ public class VoucherRepository {
                 voucher.getApplicableFor() != null ? voucher.getApplicableFor() : "all",
                 Timestamp.from(voucher.getValidFrom()),
                 Timestamp.from(voucher.getValidUntil()),
-                voucher.isActive(),
+                Boolean.valueOf(voucher.isActive()), // Explicitly convert to Boolean object
                 UUID.fromString(voucher.getCreatedBy()),
                 Timestamp.from(voucher.getCreatedAt()),
                 Timestamp.from(voucher.getUpdatedAt())
         );
+        
+        System.out.println("Rows affected: " + rowsAffected);
+        
+        // Verify the inserted voucher by fetching it back (use findByCode to bypass date checks for immediate verification)
+        Optional<Voucher> inserted = findByCode(voucher.getCode());
+        if (inserted.isPresent()) {
+            Voucher retrieved = inserted.get();
+            System.out.println("=== VOUCHER RETRIEVED FROM DB ===");
+            System.out.println("Retrieved isActive: " + retrieved.isActive());
+            System.out.println("Retrieved Code: " + retrieved.getCode());
+            System.out.println("Retrieved validFrom: " + retrieved.getValidFrom());
+            System.out.println("Retrieved validUntil: " + retrieved.getValidUntil());
+            System.out.println("Current time: " + Instant.now());
+            
+            // Check if it would be found by findActiveByCode
+            Optional<Voucher> activeCheck = findActiveByCode(voucher.getCode(), Instant.now());
+            if (activeCheck.isPresent()) {
+                System.out.println("✅ Voucher is active and valid for current time");
+            } else {
+                System.out.println("⚠️ Voucher exists but is not active/valid for current time");
+                if (!retrieved.isActive()) {
+                    System.out.println("   Reason: isActive = false");
+                }
+                if (retrieved.getValidFrom() != null && retrieved.getValidFrom().isAfter(Instant.now())) {
+                    System.out.println("   Reason: validFrom is in the future");
+                }
+                if (retrieved.getValidUntil() != null && retrieved.getValidUntil().isBefore(Instant.now())) {
+                    System.out.println("   Reason: validUntil is in the past");
+                }
+            }
+        } else {
+            System.out.println("WARNING: Could not retrieve voucher after insertion!");
+        }
+        
         return voucher;
     }
 

@@ -1,5 +1,6 @@
 package com.Daad.ecommerce.model;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.time.Instant;
 
 public class Voucher {
@@ -14,7 +15,10 @@ public class Voucher {
     private String applicableFor; // all, category, brand, vendor, ...
     private Instant validFrom;
     private Instant validUntil;
+    
+    @JsonProperty("isActive")
     private boolean isActive;
+    
     private String createdBy;
     private Instant createdAt;
     private Instant updatedAt;
@@ -53,6 +57,11 @@ public class Voucher {
     public void setValidUntil(Instant validUntil) { this.validUntil = validUntil; }
 
     public boolean isActive() { return isActive; }
+    
+    // Additional getter for Jackson serialization (some JSON libraries prefer getIsActive)
+    @JsonProperty("isActive")
+    public boolean getIsActive() { return isActive; }
+    
     public void setActive(boolean active) { isActive = active; }
 
     public String getCreatedBy() { return createdBy; }
